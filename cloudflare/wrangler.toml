@@ -1,0 +1,7 @@
+name = "openshield-community"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "REPORTS"
+id = "1974878e1d7943b7a6372a57f73c097d"

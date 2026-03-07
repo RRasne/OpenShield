@@ -1,0 +1,21 @@
+*.iml
+.gradle/
+.idea/
+.DS_Store
+/build/
+/captures/
+/externalNativeBuild/
+/cxx/
+local.properties
+
+# Android outputs
+**/build/
+app/release/
+
+# Cloudflare / Wrangler local state
+cloudflare/.wrangler/
+cloudflare/node_modules/
+
+# Logs and temp
+*.log
+*.tmp
