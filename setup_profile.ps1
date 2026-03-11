@@ -137,4 +137,30 @@ Notlar
 - Bu scriptteki e‑posta ve isim örnektir, kendi bilgilerinizi girmeniz gerekir.
 - Eğer commit geçmişini temizlemek istemiyorsanız `gppclear` komutunu dikkatli kullanın.
 - Android projelerinde `gppversion` fonksiyonu yalnızca `app/build.gradle.kts` dosyası varsa çalışır.
+
+Adım adım yeniden kurulum
+- Profil dosyasını oluştur
+New-Item -ItemType File -Force -Path $PROFILE
+- Profil dosyasını aç
+notepad $PROFILE
+- Fonksiyonları içine yaz
+Açılan dosyaya şunu yapıştır:
+function gpp {
+    param($msg = "update $(Get-Date -Format 'yyyy-MM-dd HH:mm')")
+    git add .
+    git commit -m $msg
+    git push
+}
+- (İstersen gppclear ve gppversion fonksiyonlarını da ekleyebilirsin.)
+- Kaydet ve kapat
+Dosyayı kaydet.
+- Profil dosyasını yükle
+. $PROFILE
+- Test et
+Proje klasörüne git (cd C:\Users\Ensar\Desktop\OpenShield) ve çalıştır:
+gpp "hata düzeltmeleri 0.9"
+
+
+- Bu komut otomatik olarak git add ., git commit -m "hata düzeltmeleri 0.9", git push yapacak.
+
 #>
