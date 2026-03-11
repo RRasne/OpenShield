@@ -1,4 +1,4 @@
-﻿package com.openshield
+package com.openshield
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -44,6 +44,7 @@ import com.openshield.data.db.WhitelistEntity
 import com.openshield.data.model.SmsHistoryItem
 import com.openshield.ui.MessageHistoryScreen
 import com.openshield.ui.MainViewModel
+import com.openshield.ui.SuspiciousReviewDialog
 import com.openshield.worker.CommunityReportWorker
 import dagger.hilt.android.AndroidEntryPoint
 import java.text.SimpleDateFormat
@@ -100,6 +101,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val smsHistory by viewModel.smsHistory.collectAsState()
     val smsFeedback by viewModel.smsFeedback.collectAsState()
     val communitySummary by viewModel.communitySummary.collectAsState()
+    val pendingReviews by viewModel.pendingReviews.collectAsState()
 
     var activeTab by remember { mutableStateOf(Tab.HOME) }
     var isProtectionOn by remember { mutableStateOf(true) }
@@ -180,6 +182,10 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                     )
                 }
             }
+            SuspiciousReviewDialog(
+                pendingReviews = pendingReviews,
+                onDecide = { item, isSpam -> viewModel.decideSuspicious(item, isSpam) }
+            )
             BottomNavBar(activeTab = activeTab, onTabChange = { activeTab = it })
         }
     }
@@ -768,6 +774,8 @@ fun outlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = AccentBlue, unfocusedBorderColor = TextMuted,
     focusedTextColor = TextPri, unfocusedTextColor = TextPri, cursorColor = AccentBlue
 )
+
+
 
 
 

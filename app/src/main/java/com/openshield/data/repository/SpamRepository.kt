@@ -1,4 +1,4 @@
-﻿package com.openshield.data.repository
+package com.openshield.data.repository
 
 import android.Manifest
 import android.content.Context
@@ -8,6 +8,7 @@ import androidx.core.content.ContextCompat
 import com.openshield.data.BundledSpamImporter
 import com.openshield.data.SpamReporter
 import com.openshield.data.db.BlockedLogEntity
+import com.openshield.data.db.PendingReviewEntity
 import com.openshield.data.db.SmsFeedbackEntity
 import com.openshield.data.db.SpamDatabase
 import com.openshield.data.db.SpamNumberEntity
@@ -28,10 +29,11 @@ class SpamRepository @Inject constructor(
     private val appContext: Context
 ) {
 
-    val userSpamNumbers: Flow<List<SpamNumberEntity>> = db.spamNumberDao().getAllFlow()
-    val allSpamNumbers: Flow<List<SpamNumberEntity>> = userSpamNumbers
+    val userSpamNumbers: Flow<List<SpamNumberEntity>> = db.spamNumberDao().getUserAddedFlow()
+    val allSpamNumbers: Flow<List<SpamNumberEntity>> = db.spamNumberDao().getAllFlow()
     val allWhitelist: Flow<List<WhitelistEntity>> = db.whitelistDao().getAllFlow()
     val recentBlocked: Flow<List<BlockedLogEntity>> = db.blockLogDao().getRecentFlow()
+    val pendingReviews: Flow<List<PendingReviewEntity>> = db.pendingReviewDao().getAllFlow()
 
     suspend fun isSpam(number: String): Boolean {
         val normalized = cleanNumber(number)
@@ -72,11 +74,39 @@ class SpamRepository @Inject constructor(
         )
     }
 
+    suspend fun logSuspicious(sender: String, reason: String, score: Float) {
+        db.pendingReviewDao().insert(
+            PendingReviewEntity(
+                sender = cleanNumber(sender),
+                reason = reason,
+                score = score
+            )
+        )
+    }
+
+    suspend fun decideSuspicious(item: PendingReviewEntity, isSpam: Boolean) {
+        if (isSpam) {
+            addSpam(item.sender, "Supheli incelemeden spam olarak onaylandi")
+            logBlocked(item.sender, "Supheli inceleme: ${item.reason}", item.score)
+            db.communityReportDao().addReport(SpamReporter.hashPhoneNumber(item.sender))
+            SpamReportUploadWorker.enqueue(
+                context = appContext,
+                numberHash = SpamReporter.hashPhoneNumber(item.sender),
+                rules = listOf("PENDING_REVIEW_CONFIRMED"),
+                score = item.score,
+                category = "USER_REVIEWED_SPAM"
+            )
+            CommunityReportWorker.enqueueSyncIfNeeded(appContext)
+        }
+        db.pendingReviewDao().deleteById(item.id)
+    }
+
     suspend fun totalBlocked(): Int = db.blockLogDao().totalCount()
 
     suspend fun clearHistory() {
         db.blockLogDao().clearAll()
         db.smsFeedbackDao().clearAll()
+        db.pendingReviewDao().clearAll()
     }
 
     suspend fun clearFeedback() {
@@ -146,6 +176,7 @@ class SpamRepository @Inject constructor(
 
         if (verdict == FeedbackVerdict.SPAM) {
             addSpam(normalized, "Kullanici spam olarak isaretledi")
+            db.communityReportDao().addReport(numberHash)
         }
 
         SpamReportUploadWorker.enqueue(
@@ -203,5 +234,3 @@ class SpamRepository @Inject constructor(
         return number.trim().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
     }
 }
-
-

@@ -1,8 +1,9 @@
-﻿package com.openshield.ui
+package com.openshield.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openshield.data.db.BlockedLogEntity
+import com.openshield.data.db.PendingReviewEntity
 import com.openshield.data.db.SpamNumberEntity
 import com.openshield.data.db.WhitelistEntity
 import com.openshield.data.model.CommunityContributionSummary
@@ -37,6 +38,10 @@ class MainViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val blockedLog: StateFlow<List<BlockedLogEntity>> = repository.recentBlocked
+        .catch { emit(emptyList()) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val pendingReviews: StateFlow<List<PendingReviewEntity>> = repository.pendingReviews
         .catch { emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -96,6 +101,13 @@ class MainViewModel @Inject constructor(
         refreshCommunitySummary()
     }
 
+    fun decideSuspicious(item: PendingReviewEntity, isSpam: Boolean) = viewModelScope.launch {
+        withContext(Dispatchers.IO) {
+            repository.decideSuspicious(item, isSpam)
+        }
+        refreshCommunitySummary()
+    }
+
     fun addSpam(number: String, label: String) = viewModelScope.launch {
         withContext(Dispatchers.IO) {
             repository.addSpam(number, label)
@@ -143,4 +155,3 @@ class MainViewModel @Inject constructor(
         refreshCommunitySummary()
     }
 }
-

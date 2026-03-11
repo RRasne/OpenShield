@@ -11,6 +11,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
@@ -50,8 +51,29 @@ data class SmsFeedbackEntity(
     val markedAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "community_reports")
+data class CommunityReportEntity(
+    @PrimaryKey val numberHash: String,
+    val reportCount: Int = 1,
+    val source: String = "community",
+    val firstReportedAt: Long = System.currentTimeMillis(),
+    val lastReportedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "pending_review")
+data class PendingReviewEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sender: String,
+    val reason: String,
+    val score: Float,
+    val receivedAt: Long = System.currentTimeMillis()
+)
+
 @Dao
 interface SpamNumberDao {
+    @Query("SELECT * FROM spam_numbers WHERE isUserAdded = 1 ORDER BY addedAt DESC")
+    fun getUserAddedFlow(): Flow<List<SpamNumberEntity>>
+
     @Query("SELECT * FROM spam_numbers ORDER BY addedAt DESC")
     fun getAllFlow(): Flow<List<SpamNumberEntity>>
 
@@ -128,9 +150,59 @@ interface SmsFeedbackDao {
     suspend fun clearAll()
 }
 
+@Dao
+interface CommunityReportDao {
+    @Query("SELECT reportCount FROM community_reports WHERE numberHash = :hash LIMIT 1")
+    suspend fun getReportCount(hash: String): Int?
+
+    @Query("SELECT * FROM community_reports WHERE numberHash = :hash LIMIT 1")
+    suspend fun findByHash(hash: String): CommunityReportEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: CommunityReportEntity)
+
+    @Query("UPDATE community_reports SET reportCount = reportCount + 1, lastReportedAt = :timestamp WHERE numberHash = :hash")
+    suspend fun incrementCount(hash: String, timestamp: Long)
+
+    @Query("SELECT * FROM community_reports ORDER BY reportCount DESC")
+    fun getAllFlow(): Flow<List<CommunityReportEntity>>
+
+    @Transaction
+    suspend fun addReport(hash: String) {
+        val existing = findByHash(hash)
+        if (existing == null) {
+            insert(CommunityReportEntity(numberHash = hash))
+        } else {
+            incrementCount(hash, System.currentTimeMillis())
+        }
+    }
+}
+
+@Dao
+interface PendingReviewDao {
+    @Query("SELECT * FROM pending_review ORDER BY receivedAt DESC")
+    fun getAllFlow(): Flow<List<PendingReviewEntity>>
+
+    @Insert
+    suspend fun insert(entity: PendingReviewEntity)
+
+    @Query("DELETE FROM pending_review WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM pending_review")
+    suspend fun clearAll()
+}
+
 @Database(
-    entities = [SpamNumberEntity::class, WhitelistEntity::class, BlockedLogEntity::class, SmsFeedbackEntity::class],
-    version = 3,
+    entities = [
+        SpamNumberEntity::class,
+        WhitelistEntity::class,
+        BlockedLogEntity::class,
+        SmsFeedbackEntity::class,
+        CommunityReportEntity::class,
+        PendingReviewEntity::class
+    ],
+    version = 4,
     exportSchema = false
 )
 abstract class SpamDatabase : RoomDatabase() {
@@ -138,14 +210,16 @@ abstract class SpamDatabase : RoomDatabase() {
     abstract fun whitelistDao(): WhitelistDao
     abstract fun blockLogDao(): BlockedLogDao
     abstract fun smsFeedbackDao(): SmsFeedbackDao
+    abstract fun communityReportDao(): CommunityReportDao
+    abstract fun pendingReviewDao(): PendingReviewDao
 
     companion object {
         @Volatile
         private var INSTANCE: SpamDatabase? = null
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS sms_feedback (
                         messageId INTEGER NOT NULL,
@@ -160,9 +234,37 @@ abstract class SpamDatabase : RoomDatabase() {
         }
 
         private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE sms_feedback ADD COLUMN sender TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE sms_feedback ADD COLUMN verdict TEXT NOT NULL DEFAULT 'SPAM'")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sms_feedback ADD COLUMN sender TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE sms_feedback ADD COLUMN verdict TEXT NOT NULL DEFAULT 'SPAM'")
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS community_reports (
+                        numberHash TEXT NOT NULL,
+                        reportCount INTEGER NOT NULL DEFAULT 1,
+                        source TEXT NOT NULL DEFAULT 'community',
+                        firstReportedAt INTEGER NOT NULL,
+                        lastReportedAt INTEGER NOT NULL,
+                        PRIMARY KEY(numberHash)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS pending_review (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        sender TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        score REAL NOT NULL,
+                        receivedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
             }
         }
 
@@ -174,7 +276,7 @@ abstract class SpamDatabase : RoomDatabase() {
                     "openshield.db"
                 )
                     .fallbackToDestructiveMigration()
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }

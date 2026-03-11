@@ -3,6 +3,8 @@ package com.openshield.di
 import android.content.Context
 import com.openshield.data.db.SpamDatabase
 import com.openshield.data.repository.SpamRepository
+import com.openshield.util.ConsentManager
+import com.openshield.worker.WifiSyncManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -27,5 +29,20 @@ object AppModule {
         @ApplicationContext context: Context
     ): SpamRepository {
         return SpamRepository(db, context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideConsentManager(@ApplicationContext context: Context): ConsentManager {
+        return ConsentManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideWifiSyncManager(
+        @ApplicationContext context: Context,
+        consentManager: ConsentManager
+    ): WifiSyncManager {
+        return WifiSyncManager(context, consentManager)
     }
 }
