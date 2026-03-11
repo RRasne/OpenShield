@@ -1,0 +1,9 @@
+﻿# OpenShield Community Spam List
+# Format: number,category,report_count
+# Kaynak: https://github.com/RRasne/OpenShield
+# Versiyon: 1
++905301234567,GAMBLING,23
++905389876543,FRAUD,41
++905441112233,PROMOTION,8
++908501234567,ROBOCALL,15
++905321234567,PHISHING,33
