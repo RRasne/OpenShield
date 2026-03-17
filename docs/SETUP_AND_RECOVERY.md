@@ -43,37 +43,24 @@ Android Studio ile:
 
 ## 5. setup_profile.ps1 Sifirdan Kurulumu (Geri Yukleme)
 
-Projeyi format sonrasi veya baska bir bilgisayara tasidiginizda asagidaki adimlari sirayla uygula.
+Projeyi format sonrasi veya baska bir bilgisayara tasidiginizda asagidaki iki adimi uygula.
 
-> **ONEMLI:** Windows'ta `Windows PowerShell` (eski) ve `PowerShell 7+` (yeni, `pwsh`) olmak uzere iki farkli surum vardir. Adim 4 olmadan `gpp` PowerShell 7'de tanimlanmaz.
-
-**Adim 1 — Script calistirma iznini ver:**
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
-```
-
-**Adim 2 — Proje dizinine gec ve scripti calistir:**
+**Adim 1 — Proje dizinine gec ve scripti calistir:**
 ```powershell
 cd C:\Users\Ensar\Desktop\OpenShield
 powershell -ExecutionPolicy Bypass -File ".\setup_profile.ps1"
 ```
+Script otomatik olarak su isleri yapar:
+- Execution policy'yi ayarlar
+- Hem `WindowsPowerShell` (PS5) hem `PowerShell` (PS7) profillerini gunceller
+- Mevcut oturuma fonksiyonlari yukler
 
-**Adim 3 — PowerShell 7 icin profili kopyala** *(bu adimi atlama!)*:
-```powershell
-$newProfileDir = "$env:USERPROFILE\Documents\PowerShell"
-New-Item -ItemType Directory -Force -Path $newProfileDir | Out-Null
-$src = Get-Content "$env:USERPROFILE\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1" -Raw
-Set-Content "$newProfileDir\Microsoft.PowerShell_profile.ps1" $src -Encoding UTF8
-Write-Host "Hazir!" -ForegroundColor Green
-```
+**Adim 2 — Terminali tamamen kapat, yeni bir PowerShell ac.**
 
-**Adim 4 — Terminali tamamen kapat, yeni bir PowerShell 7 ac.**
-
-**Adim 5 — Dogrula:**
+**Adim 3 — Dogrula:**
 ```powershell
 Get-Command gpp
 ```
-`gpp` goruntuleniyor ise kurulum tamamdir.
 
 ---
 
@@ -93,10 +80,11 @@ Get-Command gpp
 
 | Hata | Cozum |
 |---|---|
-| `gpp is not recognized` | Adim 3'u (PowerShell 7 profil kopyalama) yapmadiniz |
-| `running scripts is disabled` | Adim 1'i calistirin: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force` |
-| `unable to auto-detect email` | `git config --global user.email "mail@example.com"` calistirin |
-| Profil acilirken kirmizi `WinGet` hatasi | Onemsiz, `gpp` calismasini etkilemez, goz ardi edin |
+| `The term 'C:\Users\...\Scripts\gpp.ps1' is not recognized` | PATH'te `Scripts\` klasoru var ama `gpp.ps1` yok. `setup_profile.ps1`'i calistir, otomatik olusturur |
+| `gpp is not recognized` | `setup_profile.ps1`'i calistir, terminali kapat/ac |
+| `running scripts is disabled` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force` calistir, sonra scripti tekrar dene |
+| `unable to auto-detect email` | `git config --global user.email "mail@example.com"` calistir |
+| Profil acilirken kirmizi `WinGet` hatasi | Onemsiz, `gpp` calismasini etkilemez, goz ardi et |
 
 ## 6. Cloudflare Endpoint Testleri
 
