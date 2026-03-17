@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,13 +53,16 @@ fun SuspiciousReviewDialog(
     val scorePercent = (current.score * 100).toInt()
 
     AlertDialog(
-        onDismissRequest = {},
+        onDismissRequest = { },
         containerColor = Surface2,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Suspicious", color = Amber, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("⚠️", fontSize = 20.sp)
                 Spacer(Modifier.size(8.dp))
-                Text(date, color = TextMuted, fontSize = 11.sp)
+                Column {
+                    Text("Şüpheli Mesaj", color = Amber, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(date, color = TextMuted, fontSize = 11.sp)
+                }
             }
         },
         text = {
@@ -67,7 +71,8 @@ fun SuspiciousReviewDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Card1),
+                        .background(Card1)
+                        .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
@@ -91,19 +96,28 @@ fun SuspiciousReviewDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Card1),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .background(Card1)
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        Text("Nedenler", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                        current.reason.split(",").map { it.trim() }.filter { it.isNotBlank() }.forEach { rule ->
-                            Text(rule, color = TextSec, fontSize = 11.sp)
-                        }
+                        Text("Şüphe nedenleri:", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        current.reason
+                            .split(",")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .forEach { rule ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(4.dp).clip(CircleShape).background(Amber))
+                                    Spacer(Modifier.size(6.dp))
+                                    Text(rule, color = TextSec, fontSize = 11.sp)
+                                }
+                            }
                     }
                 }
 
                 if (pendingReviews.size > 1) {
                     Text(
-                        "${pendingReviews.size - 1} supheli mesaj daha bekliyor",
+                        text = "${pendingReviews.size - 1} şüpheli mesaj daha bekliyor",
                         color = TextMuted,
                         fontSize = 11.sp,
                         textAlign = TextAlign.Center,
@@ -118,9 +132,9 @@ fun SuspiciousReviewDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = Red),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(Icons.Default.Block, contentDescription = null)
+                Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.size(6.dp))
-                Text("Spam")
+                Text("Spam - Kara Listeye Al")
             }
         },
         dismissButton = {
@@ -129,7 +143,7 @@ fun SuspiciousReviewDialog(
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Green)
             ) {
-                Text("Spam degil")
+                Text("Spam Degil - Gec")
             }
         }
     )

@@ -1,11 +1,12 @@
 package com.openshield.data.repository
 
-import com.openshield.data.db.BlockedLogEntity
-import com.openshield.data.db.CommunityReportEntity
-import com.openshield.data.db.PendingReviewEntity
-import com.openshield.data.db.SpamDatabase
-import com.openshield.data.db.SpamNumberEntity
-import com.openshield.data.db.WhitelistEntity
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.provider.Telephony
+import androidx.core.content.ContextCompat
+import com.openshield.data.db.*
+import com.openshield.data.model.SmsHistoryItem
 import kotlinx.coroutines.flow.Flow
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -19,6 +20,8 @@ class SpamNumberRepository @Inject constructor(
         const val COMMUNITY_THRESHOLD = 5
     }
 
+    // ─── SpamDetectionEngine arayüzü ──────────────────────────────────────────
+
     suspend fun isInBlacklist(number: String): Boolean =
         db.spamNumberDao().findByNumber(cleanNumber(number)) != null
 
@@ -27,34 +30,25 @@ class SpamNumberRepository @Inject constructor(
 
     suspend fun getCommunityReportCount(number: String): Int {
         val hash = hashNumber(number)
-        return db.communityReportDao().getReportCount(hash)
-            ?: db.spamNumberDao().findByNumber(cleanNumber(number))?.reportCount
-            ?: 0
+        return db.communityReportDao().getReportCount(hash) ?: 0
     }
+
+    // ─── UI Flow'ları ─────────────────────────────────────────────────────────
 
     val spamNumbers: Flow<List<SpamNumberEntity>>
         get() = db.spamNumberDao().getUserAddedFlow()
 
-    val allSpamNumbers: Flow<List<SpamNumberEntity>>
-        get() = db.spamNumberDao().getAllFlow()
-
     val whitelist: Flow<List<WhitelistEntity>>
         get() = db.whitelistDao().getAllFlow()
-
-    val allWhitelist: Flow<List<WhitelistEntity>>
-        get() = whitelist
 
     val blockedLog: Flow<List<BlockedLogEntity>>
         get() = db.blockLogDao().getRecentFlow()
 
-    val recentBlocked: Flow<List<BlockedLogEntity>>
-        get() = blockedLog
-
+    /** Şüpheli — kullanıcı kararı bekleniyor */
     val pendingReviews: Flow<List<PendingReviewEntity>>
         get() = db.pendingReviewDao().getAllFlow()
 
-    val communityReports: Flow<List<CommunityReportEntity>>
-        get() = db.communityReportDao().getAllFlow()
+    // ─── Kara / Beyaz Liste ───────────────────────────────────────────────────
 
     suspend fun addSpam(number: String, label: String = "") {
         db.spamNumberDao().insert(
@@ -62,36 +56,48 @@ class SpamNumberRepository @Inject constructor(
         )
     }
 
-    suspend fun addToBlacklist(number: String, label: String = "") = addSpam(number, label)
-
     suspend fun removeSpam(number: String) =
         db.spamNumberDao().deleteByNumber(cleanNumber(number))
 
-    suspend fun removeFromBlacklist(number: String) = removeSpam(number)
-
     suspend fun addWhitelist(number: String, name: String = "") {
-        db.whitelistDao().insert(WhitelistEntity(number = cleanNumber(number), name = name))
+        db.whitelistDao().insert(
+            WhitelistEntity(number = cleanNumber(number), name = name)
+        )
     }
-
-    suspend fun addToWhitelist(number: String, name: String = "") = addWhitelist(number, name)
 
     suspend fun removeWhitelist(number: String) =
         db.whitelistDao().deleteByNumber(cleanNumber(number))
 
-    suspend fun removeFromWhitelist(number: String) = removeWhitelist(number)
+    // ─── Geçmiş / Log ─────────────────────────────────────────────────────────
 
     suspend fun logBlocked(sender: String, reason: String, score: Float) {
         db.blockLogDao().insert(
-            BlockedLogEntity(sender = cleanNumber(sender), reason = reason, score = score)
+            BlockedLogEntity(sender = sender, reason = reason, score = score)
         )
     }
 
+    suspend fun clearHistory() = db.blockLogDao().clearAll()
+
+    suspend fun communityReportCount(): Int = db.communityReportDao().totalCount()
+
+    // ─── Şüpheli mesaj akışı ─────────────────────────────────────────────────
+
+    /**
+     * SmsReceiver şüpheli mesajı buraya yazar.
+     * Bildirim gösterilmez; uygulama açılınca dialog çıkar.
+     */
     suspend fun logSuspicious(sender: String, reason: String, score: Float) {
         db.pendingReviewDao().insert(
-            PendingReviewEntity(sender = cleanNumber(sender), reason = reason, score = score)
+            PendingReviewEntity(sender = sender, reason = reason, score = score)
         )
     }
 
+    /**
+     * Kullanıcı "Spam" dedi:
+     *  - blocked_log'a ekle
+     *  - topluluk raporuna say
+     *  - pending_review'dan sil
+     */
     suspend fun decideSuspicious(item: PendingReviewEntity, isSpam: Boolean) {
         if (isSpam) {
             db.blockLogDao().insert(
@@ -107,11 +113,61 @@ class SpamNumberRepository @Inject constructor(
         db.pendingReviewDao().deleteById(item.id)
     }
 
+    // ─── Topluluk raporlama ───────────────────────────────────────────────────
+
     suspend fun reportAsCommunitySpam(number: String) {
-        db.communityReportDao().addReport(hashNumber(number))
+        val hash = hashNumber(number)
+        db.communityReportDao().addReport(hash)
     }
 
-    suspend fun clearHistory() = db.blockLogDao().clearAll()
+    val communityReports: Flow<List<CommunityReportEntity>>
+        get() = db.communityReportDao().getAllFlow()
+
+    // ─── Yardımcılar ──────────────────────────────────────────────────────────
+
+    suspend fun readSmsHistory(context: Context, limit: Int = 400): List<SmsHistoryItem> {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) return emptyList()
+
+        val projection = arrayOf(
+            Telephony.Sms._ID,
+            Telephony.Sms.ADDRESS,
+            Telephony.Sms.BODY,
+            Telephony.Sms.DATE
+        )
+
+        val result = mutableListOf<SmsHistoryItem>()
+        val cursor = context.contentResolver.query(
+            Telephony.Sms.Inbox.CONTENT_URI,
+            projection,
+            null,
+            null,
+            "${Telephony.Sms.DATE} DESC"
+        )
+
+        cursor?.use {
+            val idIdx = it.getColumnIndexOrThrow(Telephony.Sms._ID)
+            val addressIdx = it.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+            val bodyIdx = it.getColumnIndexOrThrow(Telephony.Sms.BODY)
+            val dateIdx = it.getColumnIndexOrThrow(Telephony.Sms.DATE)
+
+            while (it.moveToNext() && result.size < limit) {
+                result.add(
+                    SmsHistoryItem(
+                        id = it.getLong(idIdx),
+                        sender = it.getString(addressIdx).orEmpty(),
+                        body = it.getString(bodyIdx).orEmpty(),
+                        receivedAt = it.getLong(dateIdx)
+                    )
+                )
+            }
+        }
+
+        return result
+    }
 
     private fun cleanNumber(number: String): String =
         number.trim().replace(Regex("[\\s\\-()]"), "")

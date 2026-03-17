@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openshield.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
-import com.openshield.worker.CommunityReportWorker
+import com.openshield.worker.CommunityUpdateWorker
 
 private val BgDark     = Color(0xFF080D18)
 private val Surface1   = Color(0xFF0F1623)
@@ -69,7 +69,7 @@ class OnboardingActivity : ComponentActivity() {
             ) {
                 OnboardingFlow(
                     onComplete = { accepted ->
-                        CommunityReportWorker.setConsent(this, accepted)
+                        CommunityUpdateWorker.setConsent(this, accepted)
                         OnboardingCheck.markDone(this)
                         startActivity(Intent(this, MainActivity::class.java))
                         finish()
@@ -111,8 +111,8 @@ fun OnboardingFlow(onComplete: (Boolean) -> Unit) {
                     }
                     permissionLauncher.launch(perms.toTypedArray())
                 },
-                onSkip  = { step = 3 },
-                onBack  = { step = 1 }
+                onSkip = { step = 3 },
+                onBack = { step = 1 }
             )
             3 -> CommunityConsentStep(
                 onAccept  = { onComplete(true) },
@@ -134,7 +134,6 @@ fun WelcomeStep(onNext: () -> Unit) {
         label = "s"
     )
 
-    // fillMaxSize + verticalScroll → içerik ne kadar uzun olursa olsun buton her zaman görünür
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -149,7 +148,6 @@ fun WelcomeStep(onNext: () -> Unit) {
         StepIndicator(current = 0, total = 4)
         Spacer(Modifier.height(40.dp))
 
-        // Animasyonlu logo
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -187,7 +185,6 @@ fun WelcomeStep(onNext: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         FeatureRow("🚫", "Reklam yok",            "Sıfır analitik, sıfır izleme")
 
-        // Spacer ile buton en alta itilir ama scroll olduğu için kaybolmaz
         Spacer(Modifier.height(40.dp))
 
         Button(

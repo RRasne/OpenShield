@@ -41,27 +41,62 @@ Android Studio ile:
 .\gradlew.bat :app:assembleRelease --no-daemon
 ```
 
-## 5. setup_profile.ps1 Kullanimi
+## 5. setup_profile.ps1 Sifirdan Kurulumu (Geri Yukleme)
 
-`setup_profile.ps1` PowerShell profiline Git yardimci komutlari ekler (`gpp`, `gppclear`, `gppversion`).
+Projeyi format sonrasi veya baska bir bilgisayara tasidiginizda asagidaki adimlari sirayla uygula.
 
-Calistirma:
+> **ONEMLI:** Windows'ta `Windows PowerShell` (eski) ve `PowerShell 7+` (yeni, `pwsh`) olmak uzere iki farkli surum vardir. Adim 4 olmadan `gpp` PowerShell 7'de tanimlanmaz.
 
+**Adim 1 — Script calistirma iznini ver:**
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\setup_profile.ps1
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
 ```
 
-Yeni terminal acip dogrula:
+**Adim 2 — Proje dizinine gec ve scripti calistir:**
+```powershell
+cd C:\Users\Ensar\Desktop\OpenShield
+powershell -ExecutionPolicy Bypass -File ".\setup_profile.ps1"
+```
 
+**Adim 3 — PowerShell 7 icin profili kopyala** *(bu adimi atlama!)*:
+```powershell
+$newProfileDir = "$env:USERPROFILE\Documents\PowerShell"
+New-Item -ItemType Directory -Force -Path $newProfileDir | Out-Null
+$src = Get-Content "$env:USERPROFILE\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1" -Raw
+Set-Content "$newProfileDir\Microsoft.PowerShell_profile.ps1" $src -Encoding UTF8
+Write-Host "Hazir!" -ForegroundColor Green
+```
+
+**Adim 4 — Terminali tamamen kapat, yeni bir PowerShell 7 ac.**
+
+**Adim 5 — Dogrula:**
 ```powershell
 Get-Command gpp
-gpp "chore: quick update"
-gppversion -version "1.2.3" -msg "chore(release): v1.2.3"
 ```
+`gpp` goruntuleniyor ise kurulum tamamdir.
 
-Not:
-- `gppclear` gecmisi temizleyen guclu bir komuttur, dikkatli kullan.
-- `gppversion` `app/build.gradle.kts` dosyasinda `versionName/versionCode` gunceller.
+---
+
+### Komut ozeti
+
+| Komut | Aciklama |
+|---|---|
+| `gpp "mesaj"` | Release build al, basarili ise commit + push yap |
+| `gpp -BuildOnly` | Sadece release build al, git'e dokunma |
+| `gpp "mesaj" -SkipBuild` | Build almadan direkt commit + push yap |
+| `gppclear "mesaj"` | Gecmisi sifirla, zorla push yap (dikkat — geri alinmaz!) |
+| `gppversion -version "1.2.3"` | Surumu artir, commit + tag + push yap |
+
+---
+
+### Sikca karsilasilan sorunlar
+
+| Hata | Cozum |
+|---|---|
+| `gpp is not recognized` | Adim 3'u (PowerShell 7 profil kopyalama) yapmadiniz |
+| `running scripts is disabled` | Adim 1'i calistirin: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force` |
+| `unable to auto-detect email` | `git config --global user.email "mail@example.com"` calistirin |
+| Profil acilirken kirmizi `WinGet` hatasi | Onemsiz, `gpp` calismasini etkilemez, goz ardi edin |
 
 ## 6. Cloudflare Endpoint Testleri
 

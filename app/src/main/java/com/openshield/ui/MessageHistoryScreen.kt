@@ -5,49 +5,15 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.HelpOutline
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,34 +22,32 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.openshield.AccentBlue
-import com.openshield.Amber
-import com.openshield.Card1
-import com.openshield.EmptyState
-import com.openshield.Green
-import com.openshield.Red
-import com.openshield.Surface1
-import com.openshield.Surface2
-import com.openshield.TextMuted
-import com.openshield.TextPri
-import com.openshield.TextSec
-import com.openshield.data.model.CommunityContributionSummary
-import com.openshield.data.model.FeedbackVerdict
+import com.openshield.*
 import com.openshield.data.model.SmsHistoryItem
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
+/**
+ * SMS Geçmişi ekranı.
+ *
+ * Her mesaj kartında:
+ *   - "Spam Bildir" → kırmızı, tıklanınca community raporu + kara listeye ekle
+ *   - "Güvenilir"   → yeşil, tıklanınca beyaz listeye ekle seçeneği
+ *
+ * Gönderici başlığında (grup açıkken):
+ *   - "Tümünü Spam"     → bu gönderenin tüm mesajlarını spam say
+ *   - "Tümünü Güvenilir" → bu gönderenin tüm mesajlarını temiz say
+ */
 @Composable
 fun MessageHistoryScreen(
     messages: List<SmsHistoryItem>,
-    feedback: Map<Long, FeedbackVerdict>,
-    summary: CommunityContributionSummary,
+    feedback: Map<Long, Boolean>,       // id → true=spam, false=güvenilir, null=işaretlenmemiş
+    summary: String,
     hasPermission: Boolean,
     onRefresh: () -> Unit,
     onClearMarks: () -> Unit,
-    onMark: (SmsHistoryItem, FeedbackVerdict) -> Unit,
-    onMarkSender: (List<SmsHistoryItem>, FeedbackVerdict) -> Unit
+    onMark: (SmsHistoryItem, Boolean) -> Unit,                  // tek mesaj işaretle
+    onMarkSender: (List<SmsHistoryItem>, Boolean) -> Unit       // gönderici bazlı toplu işaret
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
 
@@ -92,25 +56,22 @@ fun MessageHistoryScreen(
             onDismissRequest = { showClearDialog = false },
             containerColor = Surface2,
             title = { Text("İşaretleri Temizle", color = TextPri) },
-            text = { Text("Tüm spam / şüpheli / temiz işaretleri silinecek.", color = TextSec) },
+            text = { Text("Tüm spam / güvenilir işaretleri silinecek.", color = TextSec) },
             confirmButton = {
                 Button(
-                    onClick = {
-                        onClearMarks()
-                        showClearDialog = false
-                    },
+                    onClick = { onClearMarks(); showClearDialog = false },
                     colors = ButtonDefaults.buttonColors(containerColor = Red)
                 ) { Text("Temizle") }
             },
             dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) {
-                    Text("İptal", color = TextSec)
-                }
+                TextButton(onClick = { showClearDialog = false }) { Text("İptal", color = TextSec) }
             }
         )
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+
+        // ── Header ──────────────────────────────────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -133,32 +94,28 @@ fun MessageHistoryScreen(
             }
         }
 
+        // ── İçerik ──────────────────────────────────────────────────────────
         when {
             !hasPermission -> EmptyState("SMS izni gerekli", "Geçmiş için READ_SMS izni verin")
             messages.isEmpty() -> EmptyState("Geçmiş boş", "Gelen SMS kayıtları burada görünür")
             else -> {
+                // Gönderici bazlı grupla
                 val grouped = remember(messages) {
                     messages.groupBy { it.sender.ifBlank { "Bilinmeyen" } }
-                        .toList()
-                        .sortedByDescending { (_, senderMessages) ->
-                            senderMessages.maxOfOrNull { it.receivedAt } ?: 0L
-                        }
                 }
 
-                LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 16.dp)) {
-                    item {
-                        CommunitySummaryCard(summary = summary)
-                    }
-                    items(grouped, key = { it.first }) { (sender, senderMessages) ->
-                        SenderGroup(
-                            sender = sender,
-                            messages = senderMessages.sortedByDescending { it.receivedAt },
-                            feedback = feedback,
-                            onMark = onMark,
-                            onMarkAllSpam = { onMarkSender(senderMessages, FeedbackVerdict.SPAM) },
-                            onMarkAllSuspicious = { onMarkSender(senderMessages, FeedbackVerdict.SUSPICIOUS) },
-                            onMarkAllClean = { onMarkSender(senderMessages, FeedbackVerdict.NOT_SPAM) }
-                        )
+                LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+                    grouped.forEach { (sender, senderMessages) ->
+                        item(key = "sender_$sender") {
+                            SenderGroup(
+                                sender = sender,
+                                messages = senderMessages,
+                                feedback = feedback,
+                                onMark = onMark,
+                                onMarkAllSpam = { onMarkSender(senderMessages, true) },
+                                onMarkAllSafe = { onMarkSender(senderMessages, false) }
+                            )
+                        }
                     }
                 }
             }
@@ -166,70 +123,32 @@ fun MessageHistoryScreen(
     }
 }
 
-@Composable
-private fun CommunitySummaryCard(summary: CommunityContributionSummary) {
-    val fmt = remember { SimpleDateFormat("dd MMM HH:mm", Locale("tr")) }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 10.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Card1)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text("Topluluk katkısı", color = TextPri, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Spam ${summary.spamCount}  •  Şüpheli ${summary.suspiciousCount}  •  Temiz ${summary.notSpamCount}",
-                color = TextSec,
-                fontSize = 11.sp
-            )
-            Text(
-                summary.lastSyncAt?.let { "Son Wi-Fi senkronu: ${fmt.format(Date(it))}" } ?: "Henüz topluluk senkronu yok",
-                color = TextMuted,
-                fontSize = 10.sp
-            )
-        }
-    }
-}
+// ─── Gönderici Grubu ─────────────────────────────────────────────────────────
 
 @Composable
-private fun SenderGroup(
+fun SenderGroup(
     sender: String,
     messages: List<SmsHistoryItem>,
-    feedback: Map<Long, FeedbackVerdict>,
-    onMark: (SmsHistoryItem, FeedbackVerdict) -> Unit,
+    feedback: Map<Long, Boolean>,
+    onMark: (SmsHistoryItem, Boolean) -> Unit,
     onMarkAllSpam: () -> Unit,
-    onMarkAllSuspicious: () -> Unit,
-    onMarkAllClean: () -> Unit
+    onMarkAllSafe: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
 
+    // Bu gönderenin işaret durumunu hesapla
     val markedCount = messages.count { feedback.containsKey(it.id) }
-    val spamCount = messages.count { feedback[it.id] == FeedbackVerdict.SPAM }
-    val suspiciousCount = messages.count { feedback[it.id] == FeedbackVerdict.SUSPICIOUS }
-    val cleanCount = messages.count { feedback[it.id] == FeedbackVerdict.NOT_SPAM }
-
-    val accent = when {
-        spamCount > 0 -> Red
-        suspiciousCount > 0 -> Amber
-        cleanCount > 0 -> Green
-        else -> AccentBlue
-    }
+    val spamCount = messages.count { feedback[it.id] == true }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Card1)
     ) {
         Column {
+            // ── Gönderici başlık satırı ──────────────────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -237,16 +156,27 @@ private fun SenderGroup(
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Avatar
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(accent.copy(alpha = 0.16f))
+                        .background(
+                            when {
+                                spamCount > 0 -> Red.copy(alpha = 0.18f)
+                                markedCount > 0 -> Green.copy(alpha = 0.18f)
+                                else -> AccentBlue.copy(alpha = 0.12f)
+                            }
+                        )
                 ) {
                     Text(
                         sender.take(1).uppercase(),
-                        color = accent,
+                        color = when {
+                            spamCount > 0 -> Red
+                            markedCount > 0 -> Green
+                            else -> AccentBlue
+                        },
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -264,15 +194,13 @@ private fun SenderGroup(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        buildString {
-                            append("${messages.size} mesaj")
-                            if (markedCount > 0) append(" • $markedCount işaretli")
-                        },
+                        "${messages.size} mesaj" + if (markedCount > 0) " · $markedCount işaretli" else "",
                         color = TextSec,
                         fontSize = 11.sp
                     )
                 }
 
+                // Ok ikonu
                 Icon(
                     if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = null,
@@ -281,6 +209,7 @@ private fun SenderGroup(
                 )
             }
 
+            // ── Genişletilmiş: toplu butonlar + mesaj listesi ────────────
             AnimatedVisibility(
                 visible = expanded,
                 enter = expandVertically(),
@@ -293,42 +222,51 @@ private fun SenderGroup(
                         modifier = Modifier.padding(horizontal = 14.dp)
                     )
 
+                    // Toplu işlem butonları
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        BulkActionButton(
+                        // Tümünü Spam
+                        FilledTonalButton(
+                            onClick = onMarkAllSpam,
                             modifier = Modifier.weight(1f),
-                            text = "Tümünü Spam",
-                            icon = Icons.Default.Block,
-                            color = Red,
-                            onClick = onMarkAllSpam
-                        )
-                        BulkActionButton(
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = Red.copy(alpha = 0.15f),
+                                contentColor = Red
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Tümünü Spam", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        }
+
+                        // Tümünü Güvenilir
+                        FilledTonalButton(
+                            onClick = onMarkAllSafe,
                             modifier = Modifier.weight(1f),
-                            text = "Tümünü Şüpheli",
-                            icon = Icons.Default.HelpOutline,
-                            color = Amber,
-                            onClick = onMarkAllSuspicious
-                        )
-                        BulkActionButton(
-                            modifier = Modifier.weight(1f),
-                            text = "Tümünü Temiz",
-                            icon = Icons.Default.CheckCircle,
-                            color = Green,
-                            onClick = onMarkAllClean
-                        )
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = Green.copy(alpha = 0.15f),
+                                contentColor = Green
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Tümünü Güvenilir", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
 
+                    // Mesaj listesi
                     messages.forEach { msg ->
                         SmsMessageCard(
                             message = msg,
-                            verdict = feedback[msg.id],
-                            onMarkSpam = { onMark(msg, FeedbackVerdict.SPAM) },
-                            onMarkSuspicious = { onMark(msg, FeedbackVerdict.SUSPICIOUS) },
-                            onMarkClean = { onMark(msg, FeedbackVerdict.NOT_SPAM) }
+                            markedSpam = feedback[msg.id],
+                            onMarkSpam = { onMark(msg, true) },
+                            onMarkSafe = { onMark(msg, false) }
                         )
                     }
 
@@ -339,44 +277,21 @@ private fun SenderGroup(
     }
 }
 
-@Composable
-private fun BulkActionButton(
-    modifier: Modifier = Modifier,
-    text: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    color: Color,
-    onClick: () -> Unit
-) {
-    FilledTonalButton(
-        onClick = onClick,
-        modifier = modifier,
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = color.copy(alpha = 0.15f),
-            contentColor = color
-        ),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(4.dp))
-        Text(text, fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-    }
-}
+// ─── Tek Mesaj Kartı ─────────────────────────────────────────────────────────
 
 @Composable
-private fun SmsMessageCard(
+fun SmsMessageCard(
     message: SmsHistoryItem,
-    verdict: FeedbackVerdict?,
+    markedSpam: Boolean?,       // true=spam, false=güvenilir, null=işaretlenmemiş
     onMarkSpam: () -> Unit,
-    onMarkSuspicious: () -> Unit,
-    onMarkClean: () -> Unit
+    onMarkSafe: () -> Unit
 ) {
     val fmt = remember { SimpleDateFormat("dd MMM HH:mm", Locale("tr")) }
 
-    val bgColor = when (verdict) {
-        FeedbackVerdict.SPAM -> Red.copy(alpha = 0.06f)
-        FeedbackVerdict.SUSPICIOUS -> Amber.copy(alpha = 0.08f)
-        FeedbackVerdict.NOT_SPAM -> Green.copy(alpha = 0.06f)
-        null -> Color.Transparent
+    val bgColor = when (markedSpam) {
+        true  -> Red.copy(alpha = 0.06f)
+        false -> Green.copy(alpha = 0.06f)
+        null  -> Color.Transparent
     }
 
     Column(
@@ -385,6 +300,7 @@ private fun SmsMessageCard(
             .background(bgColor)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
+        // Mesaj içeriği
         Text(
             message.body.ifBlank { "(Boş SMS)" },
             color = TextSec,
@@ -406,44 +322,72 @@ private fun SmsMessageCard(
                 modifier = Modifier.weight(1f)
             )
 
+            // İşaret butonları — sıkı padding, compakt
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                CompactActionChip(
-                    text = "Spam",
-                    icon = Icons.Default.Block,
-                    active = verdict == FeedbackVerdict.SPAM,
-                    activeColor = Red,
-                    onClick = onMarkSpam
-                )
-                CompactActionChip(
-                    text = "Şüpheli",
-                    icon = Icons.Default.HelpOutline,
-                    active = verdict == FeedbackVerdict.SUSPICIOUS,
-                    activeColor = Amber,
-                    onClick = onMarkSuspicious
-                )
-                CompactActionChip(
-                    text = "Temiz",
-                    icon = Icons.Default.Check,
-                    active = verdict == FeedbackVerdict.NOT_SPAM,
-                    activeColor = Green,
-                    onClick = onMarkClean
-                )
+                // Spam Bildir
+                val isSpam = markedSpam == true
+                Surface(
+                    onClick = onMarkSpam,
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSpam) Red.copy(alpha = 0.2f) else Surface2,
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Block,
+                            contentDescription = "Spam",
+                            tint = if (isSpam) Red else TextMuted,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Spam",
+                            color = if (isSpam) Red else TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSpam) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    }
+                }
+
+                // Güvenilir
+                val isSafe = markedSpam == false
+                Surface(
+                    onClick = onMarkSafe,
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSafe) Green.copy(alpha = 0.2f) else Surface2,
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = "Güvenilir",
+                            tint = if (isSafe) Green else TextMuted,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Güvenilir",
+                            color = if (isSafe) Green else TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSafe) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    }
+                }
             }
         }
 
-        if (verdict != null) {
+        // İşaret göstergesi
+        if (markedSpam != null) {
             Spacer(Modifier.height(4.dp))
             Text(
-                when (verdict) {
-                    FeedbackVerdict.SPAM -> "Spam olarak işaretlendi"
-                    FeedbackVerdict.SUSPICIOUS -> "Şüpheli olarak işaretlendi"
-                    FeedbackVerdict.NOT_SPAM -> "Temiz olarak işaretlendi"
-                },
-                color = when (verdict) {
-                    FeedbackVerdict.SPAM -> Red.copy(alpha = 0.75f)
-                    FeedbackVerdict.SUSPICIOUS -> Amber.copy(alpha = 0.85f)
-                    FeedbackVerdict.NOT_SPAM -> Green.copy(alpha = 0.75f)
-                },
+                if (markedSpam) "✓ Spam olarak işaretlendi" else "✓ Güvenilir olarak işaretlendi",
+                color = if (markedSpam) Red.copy(alpha = 0.7f) else Green.copy(alpha = 0.7f),
                 fontSize = 10.sp
             )
         }
@@ -453,40 +397,5 @@ private fun SmsMessageCard(
             thickness = 0.5.dp,
             modifier = Modifier.padding(top = 8.dp)
         )
-    }
-}
-
-@Composable
-private fun CompactActionChip(
-    text: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    active: Boolean,
-    activeColor: Color,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(8.dp),
-        color = if (active) activeColor.copy(alpha = 0.20f) else Surface2,
-        modifier = Modifier.height(28.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                icon,
-                contentDescription = text,
-                tint = if (active) activeColor else TextMuted,
-                modifier = Modifier.size(12.dp)
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(
-                text,
-                color = if (active) activeColor else TextMuted,
-                fontSize = 11.sp,
-                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
-            )
-        }
     }
 }

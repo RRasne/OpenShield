@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.WRITE_SMS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.INTERNET" />`r`n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.BROADCAST_SMS" />
+
+    <!-- Topluluk verisi için (kullanıcı onayı olmadan kullanılmaz) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".OpenShieldApp"
@@ -16,14 +20,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.OpenShield">
 
+        <!--
+            launchMode="singleTop": bildirime tıklanınca yeni Activity açılmaz,
+            mevcut MainActivity'e onNewIntent() ile "open_tab" extra'sı gider.
+        -->
         <activity
             android:name=".MainActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-
-        <activity
-            android:name=".ui.OnboardingActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -31,27 +35,22 @@
             </intent-filter>
         </activity>
 
+        <!--
+            priority="2147483647" = Integer.MAX_VALUE
+            abortBroadcast() çalışması için en yüksek öncelik şart.
+
+            android:permission="android.permission.BROADCAST_SMS": sadece sistem
+            tetikleyebilir, başka uygulama sahte SMS inject edemez.
+        -->
         <receiver
             android:name=".service.SmsReceiver"
             android:exported="true"
             android:permission="android.permission.BROADCAST_SMS">
-            <intent-filter android:priority="999">
+            <intent-filter android:priority="2147483647">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
 
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            android:exported="false"
-            tools:node="merge">
-            <meta-data
-                android:name="androidx.work.WorkManagerInitializer"
-                android:value="androidx.startup"
-                tools:node="remove" />
-        </provider>
-
     </application>
 
 </manifest>
-

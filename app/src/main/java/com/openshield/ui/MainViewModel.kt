@@ -1,157 +1,132 @@
 package com.openshield.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openshield.data.db.BlockedLogEntity
 import com.openshield.data.db.PendingReviewEntity
 import com.openshield.data.db.SpamNumberEntity
 import com.openshield.data.db.WhitelistEntity
-import com.openshield.data.model.CommunityContributionSummary
-import com.openshield.data.model.FeedbackVerdict
 import com.openshield.data.model.SmsHistoryItem
-import com.openshield.data.repository.SpamRepository
+import com.openshield.data.repository.SpamNumberRepository
+import com.openshield.detection.rules.SpamTokenExtractor
+import com.openshield.worker.CommunityUpdateWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
-    private val repository: SpamRepository
+    private val repository: SpamNumberRepository,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
-    val spamNumbers: StateFlow<List<SpamNumberEntity>> = repository.userSpamNumbers
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val spamNumbers: StateFlow<List<SpamNumberEntity>> = repository.spamNumbers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val whitelist: StateFlow<List<WhitelistEntity>> = repository.allWhitelist
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val whitelist: StateFlow<List<WhitelistEntity>> = repository.whitelist
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val blockedLog: StateFlow<List<BlockedLogEntity>> = repository.recentBlocked
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val blockedLog: StateFlow<List<BlockedLogEntity>> = repository.blockedLog
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val pendingReviews: StateFlow<List<PendingReviewEntity>> = repository.pendingReviews
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _smsHistory = MutableStateFlow<List<SmsHistoryItem>>(emptyList())
     val smsHistory: StateFlow<List<SmsHistoryItem>> = _smsHistory
 
-    private val _communitySummary = MutableStateFlow(CommunityContributionSummary())
-    val communitySummary: StateFlow<CommunityContributionSummary> = _communitySummary
+    private val _smsFeedback = MutableStateFlow<Map<Long, Boolean>>(emptyMap())
+    val smsFeedback: StateFlow<Map<Long, Boolean>> = _smsFeedback
 
-    val smsFeedback: StateFlow<Map<Long, FeedbackVerdict>> = repository.userSmsFeedbackFlow()
-        .map { rows ->
-            rows.associate { row ->
-                row.messageId to runCatching { FeedbackVerdict.valueOf(row.verdict) }
-                    .getOrDefault(if (row.isSpam) FeedbackVerdict.SPAM else FeedbackVerdict.NOT_SPAM)
-            }
-        }
-        .catch { emit(emptyMap()) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    private val _communitySummary = MutableStateFlow("")
+    val communitySummary: StateFlow<String> = _communitySummary
 
-    init {
-        refreshCommunitySummary()
-    }
+    // ─── Kara / Beyaz Liste ───────────────────────────────────────────────────
 
-    fun refreshSmsHistory() = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            val history = repository.loadSmsHistory()
-            _smsHistory.update { history }
-        }
-        refreshCommunitySummary()
-    }
-
-    fun refreshCommunitySummary() = viewModelScope.launch {
-        val summary = withContext(Dispatchers.IO) {
-            repository.getCommunityContributionSummary()
-        }
-        _communitySummary.value = summary
-    }
-
-    fun markSms(messageId: Long, sender: String, verdict: FeedbackVerdict) = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            repository.markSmsAndQueueCommunityReport(messageId, sender, verdict)
-        }
-        refreshCommunitySummary()
-    }
-
-    fun markSenderMessages(messages: List<SmsHistoryItem>, verdict: FeedbackVerdict) = viewModelScope.launch {
-        if (messages.isEmpty()) return@launch
-        withContext(Dispatchers.IO) {
-            messages.forEach { message ->
-                repository.markSmsAndQueueCommunityReport(
-                    messageId = message.id,
-                    sender = message.sender,
-                    verdict = verdict
-                )
-            }
-        }
-        refreshCommunitySummary()
-    }
-
-    fun decideSuspicious(item: PendingReviewEntity, isSpam: Boolean) = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            repository.decideSuspicious(item, isSpam)
-        }
-        refreshCommunitySummary()
-    }
-
-    fun addSpam(number: String, label: String) = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            repository.addSpam(number, label)
-        }
+    fun addSpam(number: String, label: String = "") = viewModelScope.launch {
+        repository.addSpam(number, label)
     }
 
     fun removeSpam(number: String) = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            repository.removeSpam(number)
-        }
+        repository.removeSpam(number)
     }
 
-    fun addWhitelist(number: String, name: String) = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            repository.addWhitelist(number, name)
-        }
+    fun addWhitelist(number: String, name: String = "") = viewModelScope.launch {
+        repository.addWhitelist(number, name)
     }
 
     fun removeWhitelist(number: String) = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            repository.removeWhitelist(number)
-        }
-    }
-
-    fun clearFeedback() = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            repository.clearFeedback()
-        }
-        refreshCommunitySummary()
+        repository.removeWhitelist(number)
     }
 
     fun clearHistory() = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            repository.clearHistory()
-        }
-        refreshCommunitySummary()
+        repository.clearHistory()
     }
 
     fun clearAllData() = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            repository.clearHistory()
-            repository.userSpamNumbers.first().forEach { repository.removeSpam(it.number) }
-            repository.allWhitelist.first().forEach { repository.removeWhitelist(it.number) }
+        repository.clearHistory()
+    }
+
+    // ─── Şüpheli Karar ───────────────────────────────────────────────────────
+
+    fun decideSuspicious(item: PendingReviewEntity, isSpam: Boolean) = viewModelScope.launch {
+        repository.decideSuspicious(item, isSpam)
+        if (isSpam && CommunityUpdateWorker.hasConsent(context)) {
+            val hash = repository.hashNumber(item.sender)
+            val rules = SpamTokenExtractor.sanitizeRules(item.reason.split(","))
+            CommunityUpdateWorker.reportSpam(context, hash, emptyList(), rules)
         }
-        refreshCommunitySummary()
+    }
+
+    // ─── Spam Bildir ──────────────────────────────────────────────────────────
+
+    fun reportAsSpam(
+        number: String,
+        messageBody: String = "",
+        triggeredRules: List<String> = emptyList()
+    ) = viewModelScope.launch {
+        repository.addSpam(number, label = "Bildirildi")
+        if (CommunityUpdateWorker.hasConsent(context)) {
+            val hash = repository.hashNumber(number)
+            val tokens = SpamTokenExtractor.extract(messageBody)
+            val safeRules = SpamTokenExtractor.sanitizeRules(triggeredRules)
+            CommunityUpdateWorker.reportSpam(context, hash, tokens, safeRules)
+        }
+    }
+
+    // ─── SMS Geçmişi ──────────────────────────────────────────────────────────
+
+    fun refreshSmsHistory() = viewModelScope.launch {
+        _smsHistory.value = repository.readSmsHistory(context)
+    }
+
+    fun markSms(id: Long, sender: String, isSpam: Boolean) = viewModelScope.launch {
+        _smsFeedback.value = _smsFeedback.value + (id to isSpam)
+        if (isSpam) reportAsSpam(sender)
+        else repository.addWhitelist(sender, name = "Güvenilir (işaretlendi)")
+    }
+
+    fun markSenderMessages(messages: List<SmsHistoryItem>, isSpam: Boolean) = viewModelScope.launch {
+        val updated = _smsFeedback.value.toMutableMap()
+        messages.forEach { updated[it.id] = isSpam }
+        _smsFeedback.value = updated
+
+        val sender = messages.firstOrNull()?.sender ?: return@launch
+        val body = messages.firstOrNull()?.body ?: ""
+        if (isSpam) reportAsSpam(sender, body)
+        else repository.addWhitelist(sender, name = "Güvenilir (işaretlendi)")
+    }
+
+    fun clearFeedback() { _smsFeedback.value = emptyMap() }
+
+    fun refreshCommunitySummary() = viewModelScope.launch {
+        val count = repository.communityReportCount()
+        _communitySummary.value = if (count > 0) "$count topluluk kaydı" else ""
     }
 }

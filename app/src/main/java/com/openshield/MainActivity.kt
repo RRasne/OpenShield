@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +30,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -42,27 +42,34 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.openshield.data.db.SpamNumberEntity
 import com.openshield.data.db.WhitelistEntity
 import com.openshield.data.model.SmsHistoryItem
-import com.openshield.ui.MessageHistoryScreen
 import com.openshield.ui.MainViewModel
+import com.openshield.ui.MessageHistoryScreen
 import com.openshield.ui.SuspiciousReviewDialog
-import com.openshield.worker.CommunityReportWorker
+import com.openshield.worker.CommunityUpdateWorker
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.*
 
-// â”€â”€â”€ Renkler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-val BgDark = Color(0xFF080D18)
-val Surface1 = Color(0xFF0F1623)
-val Surface2 = Color(0xFF161F30)
-val Card1 = Color(0xFF1C2840)
+// ─── Renkler ─────────────────────────────────────────────────────────────────
+
+val BgDark     = Color(0xFF080D18)
+val Surface1   = Color(0xFF0F1623)
+val Surface2   = Color(0xFF161F30)
+val Card1      = Color(0xFF1C2840)
 val AccentBlue = Color(0xFF3B82F6)
 val AccentCyan = Color(0xFF22D3EE)
-val Red = Color(0xFFEF4444)
-val Amber = Color(0xFFF59E0B)
-val Green = Color(0xFF22C55E)
-val TextPri = Color(0xFFF8FAFC)
-val TextSec = Color(0xFF94A3B8)
-val TextMuted = Color(0xFF475569)
+val Red        = Color(0xFFEF4444)
+val Amber      = Color(0xFFF59E0B)
+val Green      = Color(0xFF22C55E)
+val TextPri    = Color(0xFFF8FAFC)
+val TextSec    = Color(0xFF94A3B8)
+val TextMuted  = Color(0xFF475569)
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -90,23 +97,25 @@ fun OpenShieldTheme(content: @Composable () -> Unit) {
 
 enum class Tab { HOME, BLACKLIST, WHITELIST, LOG, SETTINGS }
 
+// ─── Ana Ekran ────────────────────────────────────────────────────────────────
+
 @Composable
 fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val context = LocalContext.current
-    val dataSharingConsent = remember { mutableStateOf(CommunityReportWorker.hasConsent(context)) }
+    val dataSharingConsent = remember { mutableStateOf(CommunityUpdateWorker.hasConsent(context)) }
 
-    val spamNumbers by viewModel.spamNumbers.collectAsState()
-    val whitelist by viewModel.whitelist.collectAsState()
-    val blockedLog by viewModel.blockedLog.collectAsState()
-    val smsHistory by viewModel.smsHistory.collectAsState()
-    val smsFeedback by viewModel.smsFeedback.collectAsState()
+    val spamNumbers      by viewModel.spamNumbers.collectAsState()
+    val whitelist        by viewModel.whitelist.collectAsState()
+    val blockedLog       by viewModel.blockedLog.collectAsState()
+    val smsHistory       by viewModel.smsHistory.collectAsState()
+    val smsFeedback      by viewModel.smsFeedback.collectAsState()
     val communitySummary by viewModel.communitySummary.collectAsState()
-    val pendingReviews by viewModel.pendingReviews.collectAsState()
+    val pendingReviews   by viewModel.pendingReviews.collectAsState()
 
-    var activeTab by remember { mutableStateOf(Tab.HOME) }
+    var activeTab      by remember { mutableStateOf(Tab.HOME) }
     var isProtectionOn by remember { mutableStateOf(true) }
-    var hasPermission by remember { mutableStateOf(false) }
-    var dataSharing by remember { dataSharingConsent }
+    var hasPermission  by remember { mutableStateOf(false) }
+    var dataSharing    by remember { dataSharingConsent }
 
     LaunchedEffect(Unit) {
         hasPermission = ContextCompat.checkSelfPermission(
@@ -176,12 +185,13 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                         dataSharing = dataSharing,
                         onDataSharingChange = {
                             dataSharing = it
-                            CommunityReportWorker.setConsent(context, it)
+                            CommunityUpdateWorker.setConsent(context, it)
                         },
                         onClearAll = { viewModel.clearAllData() }
                     )
                 }
             }
+            // Şüpheli mesaj dialog — uygulama açılınca otomatik çıkar
             SuspiciousReviewDialog(
                 pendingReviews = pendingReviews,
                 onDecide = { item, isSpam -> viewModel.decideSuspicious(item, isSpam) }
@@ -191,7 +201,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     }
 }
 
-// â”€â”€â”€ Ana Sayfa â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Ana Sayfa ────────────────────────────────────────────────────────────────
 
 @Composable
 fun HomeTab(
@@ -291,7 +301,6 @@ fun HomeTab(
             ) {
                 StatCard(Modifier.weight(1f), blockedCount.toString(), "Engellenen", Red)
                 StatCard(Modifier.weight(1f), spamCount.toString(), "Kara Liste", Amber)
-                // Offline/Online durumu veri paylaşımına göre
                 StatCard(
                     Modifier.weight(1f),
                     if (dataSharingEnabled) "Online" else "Offline",
@@ -331,12 +340,12 @@ fun InfoRow(icon: String, text: String) {
     }
 }
 
-// â”€â”€â”€ Kara Liste â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Kara Liste ───────────────────────────────────────────────────────────────
 
 @Composable
 fun BlacklistTab(numbers: List<SpamNumberEntity>, onAdd: (String, String) -> Unit, onRemove: (String) -> Unit) {
     var number by remember { mutableStateOf("") }
-    var label by remember { mutableStateOf("") }
+    var label  by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 
@@ -380,12 +389,12 @@ fun BlacklistTab(numbers: List<SpamNumberEntity>, onAdd: (String, String) -> Uni
     }
 }
 
-// â”€â”€â”€ Beyaz Liste â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Beyaz Liste ──────────────────────────────────────────────────────────────
 
 @Composable
 fun WhitelistTab(numbers: List<WhitelistEntity>, onAdd: (String, String) -> Unit, onRemove: (String) -> Unit) {
     var number by remember { mutableStateOf("") }
-    var name by remember { mutableStateOf("") }
+    var name   by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 
@@ -429,127 +438,16 @@ fun WhitelistTab(numbers: List<WhitelistEntity>, onAdd: (String, String) -> Unit
     }
 }
 
-// â”€â”€â”€ Geçmiş â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-@Composable
-fun LogTab(
-    messages: List<SmsHistoryItem>,
-    feedback: Map<Long, Boolean>,
-    hasPermission: Boolean,
-    onRefresh: () -> Unit,
-    onClearMarks: () -> Unit,
-    onMarkSpam: (SmsHistoryItem) -> Unit,
-    onMarkNotSpam: (SmsHistoryItem) -> Unit
-) {
-    var showClearDialog by remember { mutableStateOf(false) }
-
-    if (showClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            containerColor = Surface2,
-            title = { Text("Isaretlemeleri Temizle", color = TextPri) },
-            text = { Text("Spam / spam degil isaretleri temizlenecek.", color = TextSec) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onClearMarks()
-                        showClearDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Red)
-                ) { Text("Temizle") }
-            },
-            dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("Iptal", color = TextSec) } }
-        )
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().background(Surface1)
-                .statusBarsPadding().padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("SMS", fontSize = 18.sp, color = AccentBlue)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text("SMS Gecmisi", color = TextPri, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("${messages.size} kayit", color = TextSec, fontSize = 12.sp)
-            }
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Default.Refresh, contentDescription = "Yenile", tint = TextSec)
-            }
-            if (feedback.isNotEmpty()) {
-                IconButton(onClick = { showClearDialog = true }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Isaretleri temizle", tint = TextSec)
-                }
-            }
-        }
-
-        when {
-            !hasPermission -> EmptyState("SMS izni gerekli", "Gecmis icin READ_SMS izni verin")
-            messages.isEmpty() -> EmptyState("Gecmis bos", "Gelen SMS kayitlari burada gorunur")
-            else -> LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
-                messages.forEach { message ->
-                    item(key = message.id) {
-                        LogCard(
-                            message = message,
-                            markedSpam = feedback[message.id],
-                            onMarkSpam = { onMarkSpam(message) },
-                            onMarkNotSpam = { onMarkNotSpam(message) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun LogCard(
-    message: SmsHistoryItem,
-    markedSpam: Boolean?,
-    onMarkSpam: () -> Unit,
-    onMarkNotSpam: () -> Unit
-) {
-    val fmt = SimpleDateFormat("dd MMM HH:mm", Locale("tr"))
-
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Card1)
-    ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(message.sender.ifBlank { "Bilinmeyen" }, color = TextPri, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text(message.body.ifBlank { "(Bos SMS)" }, color = TextSec, fontSize = 12.sp)
-            Text(fmt.format(Date(message.receivedAt)), color = TextMuted, fontSize = 10.sp)
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
-                    onClick = onMarkSpam,
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = if (markedSpam == true) Red.copy(alpha = 0.3f) else Surface2,
-                        contentColor = if (markedSpam == true) Red else TextSec
-                    )
-                ) {
-                    Text("Spam bildir")
-                }
-                FilledTonalButton(
-                    onClick = onMarkNotSpam,
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = if (markedSpam == false) Green.copy(alpha = 0.25f) else Surface2,
-                        contentColor = if (markedSpam == false) Green else TextSec
-                    )
-                ) {
-                    Text("Spam degil")
-                }
-            }
-        }
-    }
-}
-// â”€â”€â”€ Ayarlar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Ayarlar ──────────────────────────────────────────────────────────────────
 
 @Composable
 fun SettingsTab(dataSharing: Boolean, onDataSharingChange: (Boolean) -> Unit, onClearAll: () -> Unit) {
     var showClearDialog by remember { mutableStateOf(false) }
+    var devTapCount     by remember { mutableIntStateOf(0) }
+    var showDevPanel    by remember { mutableStateOf(false) }
+    var devPanelData    by remember { mutableStateOf("") }
+    var devLoading      by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     if (showClearDialog) {
         AlertDialog(
@@ -571,41 +469,28 @@ fun SettingsTab(dataSharing: Boolean, onDataSharingChange: (Boolean) -> Unit, on
                 modifier = Modifier.fillMaxWidth().background(Surface1)
                     .statusBarsPadding().padding(horizontal = 20.dp, vertical = 16.dp)
             ) {
-                Text("âš™ï¸  Ayarlar", color = TextPri, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                // ⚙️ encoding düzeltmesi — emoji String literal olarak yazılıyor
+                Text("\u2699\uFE0F  Ayarlar", color = TextPri, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             }
         }
 
         item {
             SettingsSection("Gizlilik") {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("📡", fontSize = 22.sp)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(
-                            "Topluluk Veri Paylaşımı",
-                            color = TextPri,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Text("Topluluk Veri Paylaşımı", color = TextPri, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.height(2.dp))
-                        Text(
-                            "Spam numaralar anonim olarak paylaşılır",
-                            color = TextSec,
-                            fontSize = 12.sp
-                        )
+                        Text("Spam numaralar anonim olarak paylaşılır", color = TextSec, fontSize = 12.sp)
                     }
                     Spacer(Modifier.width(8.dp))
                     Switch(
                         checked = dataSharing,
                         onCheckedChange = onDataSharingChange,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = AccentBlue,
-                            uncheckedThumbColor = TextMuted,
-                            uncheckedTrackColor = Surface2
+                            checkedThumbColor = Color.White, checkedTrackColor = AccentBlue,
+                            uncheckedThumbColor = TextMuted, uncheckedTrackColor = Surface2
                         )
                     )
                 }
@@ -614,10 +499,8 @@ fun SettingsTab(dataSharing: Boolean, onDataSharingChange: (Boolean) -> Unit, on
 
         item {
             SettingsSection("Veri Yönetimi") {
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { showClearDialog = true }.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth().clickable { showClearDialog = true }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
                     Text("🗑️", fontSize = 22.sp)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
@@ -631,27 +514,110 @@ fun SettingsTab(dataSharing: Boolean, onDataSharingChange: (Boolean) -> Unit, on
         }
 
         item {
+            // "Hakkında" başlığına 7 kez tıkla → geliştirici paneli
             SettingsSection("Hakkında") {
-                SettingsInfoRow("🛡️", "OpenShield", "SMS Spam Engelleme")
-                HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
-                SettingsInfoRow("📓", "Versiyon", "0.1.0-alpha")
-                HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
-                SettingsInfoRow("🔒", "Lisans", "GPL-3.0")
-                HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
-                SettingsInfoRow("📡", "İnternet", "Sadece topluluk verisi için")
+                Column(modifier = Modifier.clickable {
+                    devTapCount++
+                    if (devTapCount >= 7) { showDevPanel = !showDevPanel; devTapCount = 0 }
+                }) {
+                    SettingsInfoRow("🛡️", "OpenShield", "SMS Spam Engelleme")
+                    HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                    SettingsInfoRow("📓", "Versiyon", "0.1.0-alpha")
+                    HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                    SettingsInfoRow("🔒", "Lisans", "GPL-3.0")
+                    HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                    SettingsInfoRow("📡", "İnternet", "Sadece topluluk verisi için")
+                }
+                if (devTapCount in 1..6) {
+                    Text("${7 - devTapCount} kez daha tıkla — Geliştirici modu",
+                        color = TextMuted, fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                }
+            }
+        }
+
+        // Geliştirici Paneli
+        if (showDevPanel) {
+            item {
+                SettingsSection("Geliştirici Paneli") {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Topluluk Verileri", color = AccentBlue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Cloudflare KV'deki spam raporlarını görüntüle.\nEşiği geçmiş numaralar topluluk listesine girer.",
+                            color = TextSec, fontSize = 12.sp, lineHeight = 18.sp
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                devLoading = true; devPanelData = ""
+                                scope.launch { devPanelData = fetchDevStats(); devLoading = false }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (devLoading) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(if (devLoading) "Yükleniyor..." else "Verileri Getir")
+                        }
+                        if (devPanelData.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            Card(colors = CardDefaults.cardColors(containerColor = BgDark), shape = RoundedCornerShape(8.dp)) {
+                                Text(devPanelData, color = Green, fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace, modifier = Modifier.padding(12.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Manuel düzeltme:\ndash.cloudflare.com → Workers & Pages → KV → openshield-kv",
+                            color = TextMuted, fontSize = 11.sp, lineHeight = 16.sp
+                        )
+                    }
+                }
             }
         }
     }
 }
 
+private suspend fun fetchDevStats(): String = withContext(Dispatchers.IO) {
+    try {
+        val conn = (URL("https://openshield-api.rasne.workers.dev/community-list?since=0")
+            .openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"; connectTimeout = 8_000; readTimeout = 8_000
+            setRequestProperty("User-Agent", "OpenShield-Dev/1.0")
+        }
+        if (conn.responseCode != 200) { conn.disconnect(); return@withContext "Hata: HTTP ${conn.responseCode}" }
+        val body = conn.inputStream.bufferedReader().readText()
+        conn.disconnect()
+        val json = JSONArray(body)
+        if (json.length() == 0) return@withContext "Henüz topluluk verisi yok."
+        buildString {
+            appendLine("Toplam: ${json.length()} kayıt\n")
+            for (i in 0 until minOf(json.length(), 20)) {
+                val obj = json.getJSONObject(i)
+                val hash = obj.getString("hash").take(12) + "..."
+                val count = obj.getInt("count")
+                val rules = if (obj.has("topRules")) {
+                    val arr = obj.getJSONArray("topRules")
+                    (0 until minOf(arr.length(), 2)).joinToString(", ") { arr.getJSONObject(it).getString("key") }
+                } else ""
+                appendLine("#${i + 1} $hash  rapor:$count")
+                if (rules.isNotBlank()) appendLine("    $rules")
+            }
+            if (json.length() > 20) appendLine("... ve ${json.length() - 20} kayıt daha")
+        }
+    } catch (e: Exception) { "Bağlantı hatası: ${e.message}" }
+}
+
+// ─── Ortak Bileşenler ─────────────────────────────────────────────────────────
+
 @Composable
 fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(
-            title, color = AccentBlue, fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
-        )
+        Text(title, color = AccentBlue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp))
         Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Card1)) {
             Column { content() }
         }
@@ -660,10 +626,8 @@ fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) 
 
 @Composable
 fun SettingsInfoRow(icon: String, title: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         Text(icon, fontSize = 20.sp)
         Spacer(Modifier.width(14.dp))
         Text(title, color = TextPri, fontSize = 14.sp, modifier = Modifier.weight(1f))
@@ -671,15 +635,11 @@ fun SettingsInfoRow(icon: String, title: String, value: String) {
     }
 }
 
-// â”€â”€â”€ Ortak BileÅŸenler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
 @Composable
 fun ListHeader(title: String, subtitle: String, icon: String, onAdd: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().background(Surface1)
-            .statusBarsPadding().padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier = Modifier.fillMaxWidth().background(Surface1)
+        .statusBarsPadding().padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         Text(icon, fontSize = 20.sp)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
@@ -695,15 +655,11 @@ fun ListHeader(title: String, subtitle: String, icon: String, onAdd: () -> Unit)
 @Composable
 fun NumberCard(number: String, subtitle: String, accentColor: Color, icon: String, onDelete: () -> Unit) {
     var showDelete by remember { mutableStateOf(false) }
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
-            .clickable { showDelete = !showDelete },
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Card1)
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
+        .clickable { showDelete = !showDelete },
+        shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Card1)) {
         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                contentAlignment = Alignment.Center,
+            Box(contentAlignment = Alignment.Center,
                 modifier = Modifier.size(42.dp).clip(CircleShape).background(accentColor.copy(0.15f))
             ) { Text(icon, fontSize = 16.sp) }
             Spacer(Modifier.width(12.dp))
@@ -722,10 +678,8 @@ fun NumberCard(number: String, subtitle: String, accentColor: Color, icon: Strin
 
 @Composable
 fun StatCard(modifier: Modifier, value: String, label: String, color: Color) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.clip(RoundedCornerShape(16.dp)).background(Card1).padding(vertical = 16.dp)
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.clip(RoundedCornerShape(16.dp)).background(Card1).padding(vertical = 16.dp)) {
         Text(value, color = color, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
         Text(label, color = TextSec, fontSize = 11.sp, textAlign = TextAlign.Center)
@@ -748,11 +702,11 @@ fun EmptyState(title: String, subtitle: String) {
 fun BottomNavBar(activeTab: Tab, onTabChange: (Tab) -> Unit) {
     NavigationBar(containerColor = Surface1, tonalElevation = 0.dp) {
         listOf(
-            Triple(Tab.HOME, Icons.Default.Home, "Ana Sayfa"),
-            Triple(Tab.BLACKLIST, Icons.Default.Block, "Kara Liste"),
+            Triple(Tab.HOME,      Icons.Default.Home,        "Ana Sayfa"),
+            Triple(Tab.BLACKLIST, Icons.Default.Block,       "Kara Liste"),
             Triple(Tab.WHITELIST, Icons.Default.CheckCircle, "Beyaz Liste"),
-            Triple(Tab.LOG, Icons.Default.List, "Geçmiş"),
-            Triple(Tab.SETTINGS, Icons.Default.Settings, "Ayarlar"),
+            Triple(Tab.LOG,       Icons.Default.List,        "Geçmiş"),
+            Triple(Tab.SETTINGS,  Icons.Default.Settings,    "Ayarlar"),
         ).forEach { (tab, icon, label) ->
             NavigationBarItem(
                 selected = activeTab == tab,
@@ -774,20 +728,3 @@ fun outlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = AccentBlue, unfocusedBorderColor = TextMuted,
     focusedTextColor = TextPri, unfocusedTextColor = TextPri, cursorColor = AccentBlue
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

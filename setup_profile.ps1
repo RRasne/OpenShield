@@ -1,8 +1,52 @@
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\Documents\WindowsPowerShell" | Out-Null
+# OpenShield — gpp helper kurulum scripti
+# Her iki PowerShell surumu icin (PS5 + PS7) profilleri gunceller.
 
-@'
+# Execution policy kontrolu
+$policy = Get-ExecutionPolicy -Scope CurrentUser
+if ($policy -eq 'Restricted' -or $policy -eq 'Undefined') {
+    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
+    Write-Host "Execution policy ayarlandi: RemoteSigned" -ForegroundColor Yellow
+}
+
+$managedBlock = @'
+# >>> OpenShield gpp helpers >>>
 function gpp {
-    param($msg = "update $(Get-Date -Format 'yyyy-MM-dd HH:mm')")
+    param(
+        [string]$msg = "update $(Get-Date -Format 'yyyy-MM-dd HH:mm')",
+        [switch]$BuildOnly,
+        [switch]$SkipBuild
+    )
+
+    if (-not $SkipBuild -and (Test-Path ".\gradlew.bat")) {
+        if (-not $env:JAVA_HOME -and (Test-Path "C:\Program Files\Android\Android Studio\jbr")) {
+            $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+            $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+        }
+
+        if (-not $env:ANDROID_HOME -and (Test-Path "$env:LOCALAPPDATA\Android\Sdk")) {
+            $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+        }
+
+        if (-not $env:ANDROID_SDK_ROOT -and $env:ANDROID_HOME) {
+            $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+        }
+
+        Write-Host "Release build aliniyor..." -ForegroundColor Cyan
+        & .\gradlew.bat :app:assembleRelease --no-daemon
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "HATA: Build basarisiz. Git islemleri durduruldu." -ForegroundColor Red
+            return
+        }
+
+        Write-Host "Build tamamlandi." -ForegroundColor Green
+
+        if ($BuildOnly) { return }
+    } elseif ($BuildOnly) {
+        Write-Host "HATA: Bu klasorde gradlew.bat bulunamadi." -ForegroundColor Red
+        return
+    }
+
     git add .
     git commit -m $msg
     git push
@@ -33,8 +77,6 @@ function gppversion {
     }
 
     $content = Get-Content $gradlePath -Raw
-
-    # Mevcut versionName ve versionCode'u oku
     $oldVersionName = if ($content -match 'versionName\s*=\s*"([^"]+)"') { $matches[1] } else { $null }
     $oldVersionCode = if ($content -match 'versionCode\s*=\s*(\d+)') { [int]$matches[1] } else { $null }
 
@@ -49,118 +91,75 @@ function gppversion {
     Write-Host "versionName  : $oldVersionName  ->  $version" -ForegroundColor Cyan
     Write-Host "versionCode  : $oldVersionCode  ->  $newVersionCode" -ForegroundColor Cyan
 
-    # Dosyayı güncelle
     $newContent = $content `
         -replace '(versionName\s*=\s*")[^"]+(")', "`${1}$version`$2" `
         -replace '(versionCode\s*=\s*)\d+', "`${1}$newVersionCode"
 
     try {
         Set-Content $gradlePath $newContent -NoNewline -ErrorAction Stop
-
         git add $gradlePath
-        if ($LASTEXITCODE -ne 0) { throw "git add basarisiz" }
-
         git commit -m $commitMsg
-        if ($LASTEXITCODE -ne 0) { throw "git commit basarisiz" }
-
         git tag "v$version"
-        if ($LASTEXITCODE -ne 0) { throw "git tag basarisiz" }
-
         git push
-        if ($LASTEXITCODE -ne 0) { throw "git push basarisiz" }
-
         git push origin "v$version"
-        if ($LASTEXITCODE -ne 0) { throw "git push tag basarisiz" }
-
         Write-Host "v$version basariyla yayinlandi!" -ForegroundColor Green
-
     } catch {
         Write-Host "HATA: $_" -ForegroundColor Red
         Write-Host "Rollback yapiliyor..." -ForegroundColor Yellow
-
         Set-Content $gradlePath $content -NoNewline
-
-        # Eğer commit yapıldıysa geri al
         $lastCommit = git log --oneline -1 2>$null
         if ($lastCommit -match [regex]::Escape($commitMsg)) {
             git reset HEAD~1 | Out-Null
             git checkout -- $gradlePath | Out-Null
         }
-
-        # Eğer tag oluştuysa sil
         $tagExists = git tag -l "v$version"
-        if ($tagExists) {
-            git tag -d "v$version" | Out-Null
-        }
-
-        Write-Host "Rollback tamamlandi. Dosya eski haline dondu." -ForegroundColor Yellow
+        if ($tagExists) { git tag -d "v$version" | Out-Null }
+        Write-Host "Rollback tamamlandi." -ForegroundColor Yellow
     }
 }
-'@ | Set-Content "$env:USERPROFILE\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1" -Encoding UTF8
+# <<< OpenShield gpp helpers <<<
+'@
 
-. $PROFILE
-Write-Host "Hazir!" -ForegroundColor Green
+$startMarker = "# >>> OpenShield gpp helpers >>>"
+$endMarker   = "# <<< OpenShield gpp helpers <<<"
 
-<#
-README
-======
+function Update-Profile ($profilePath) {
+    $dir = Split-Path -Parent $profilePath
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
-Bu script ne işe yarar?
------------------------
-- PowerShell profil dosyasına Git yardımcı fonksiyonları ekler.
-- gpp       : git add + commit + push işlemlerini tek komutla yapar.
-- gppclear  : geçmiş commit'leri temizleyip yeni bir main branch oluşturur.
-- gppversion: Android Gradle dosyasındaki versionName ve versionCode'u günceller, commit/tag/push işlemlerini yapar.
+    $existing = if (Test-Path $profilePath) { Get-Content $profilePath -Raw } else { "" }
 
-İlk kez kurulum (sıfırdan ayarlama)
------------------------------------
-1. Git kimlik bilgilerini ayarla:
-   git config --global user.name "Your Name"
-   git config --global user.email "you@example.com"
+    if ($existing -match [regex]::Escape($startMarker)) {
+        $updated = [regex]::Replace(
+            $existing,
+            [regex]::Escape($startMarker) + ".*?" + [regex]::Escape($endMarker),
+            [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $managedBlock },
+            [System.Text.RegularExpressions.RegexOptions]::Singleline
+        )
+    } elseif ([string]::IsNullOrWhiteSpace($existing)) {
+        $updated = $managedBlock
+    } else {
+        $updated = $existing.TrimEnd() + "`r`n`r`n" + $managedBlock
+    }
 
-2. PowerShell profil dosyasını oluştur:
-   New-Item -ItemType File -Force -Path $PROFILE
-
-3. Bu scriptin içeriğini profil dosyasına kopyala:
-   notepad $PROFILE
-
-4. Dosyayı kaydet ve PowerShell’de yükle:
-   . $PROFILE
-
-5. Artık aşağıdaki komutları kullanabilirsin:
-   gpp "mesaj"
-   gppclear "mesaj"
-   gppversion -version "1.2.3" -msg "release notu"
-
-Notlar
-------
-- Bu scriptteki e‑posta ve isim örnektir, kendi bilgilerinizi girmeniz gerekir.
-- Eğer commit geçmişini temizlemek istemiyorsanız `gppclear` komutunu dikkatli kullanın.
-- Android projelerinde `gppversion` fonksiyonu yalnızca `app/build.gradle.kts` dosyası varsa çalışır.
-
-Adım adım yeniden kurulum
-- Profil dosyasını oluştur
-New-Item -ItemType File -Force -Path $PROFILE
-- Profil dosyasını aç
-notepad $PROFILE
-- Fonksiyonları içine yaz
-Açılan dosyaya şunu yapıştır:
-function gpp {
-    param($msg = "update $(Get-Date -Format 'yyyy-MM-dd HH:mm')")
-    git add .
-    git commit -m $msg
-    git push
+    Set-Content $profilePath $updated -Encoding UTF8
+    Write-Host "  -> Guncellendi: $profilePath" -ForegroundColor Green
 }
-- (İstersen gppclear ve gppversion fonksiyonlarını da ekleyebilirsin.)
-- Kaydet ve kapat
-Dosyayı kaydet.
-- Profil dosyasını yükle
-. $PROFILE
-- Test et
-Proje klasörüne git (cd C:\Users\Ensar\Desktop\OpenShield) ve çalıştır:
-gpp "hata düzeltmeleri 0.9"
 
+# PS5 (WindowsPowerShell) profili
+$ps5Profile = "$env:USERPROFILE\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+# PS7 (PowerShell) profili
+$ps7Profile = "$env:USERPROFILE\Documents\PowerShell\Microsoft.PowerShell_profile.ps1"
 
-- Bu komut otomatik olarak git add ., git commit -m "hata düzeltmeleri 0.9", git push yapacak.
+Write-Host "Profiller guncelleniyor..." -ForegroundColor Cyan
+Update-Profile $ps5Profile
+Update-Profile $ps7Profile
 
-#>
+# Mevcut oturuma hemen yukle
+. $ps5Profile
+if ($PSVersionTable.PSVersion.Major -ge 7) { . $ps7Profile }
+
+Write-Host ""
+Write-Host "Kurulum tamamlandi! 'gpp', 'gppclear', 'gppversion' hazir." -ForegroundColor Green
+Write-Host "Yeni terminal acarak veya su an kullanmak icin asagidaki komutu calistir:" -ForegroundColor Yellow
+Write-Host "  . `$PROFILE" -ForegroundColor White

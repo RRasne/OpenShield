@@ -2,7 +2,10 @@ package com.openshield.di
 
 import android.content.Context
 import com.openshield.data.db.SpamDatabase
+import com.openshield.data.repository.SpamNumberRepository
 import com.openshield.data.repository.SpamRepository
+import com.openshield.detection.engine.SpamDetectionEngine
+import com.openshield.detection.ml.TFLiteClassifier
 import com.openshield.util.ConsentManager
 import com.openshield.worker.WifiSyncManager
 import dagger.Module
@@ -16,33 +19,34 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
-    @Provides
-    @Singleton
-    fun provideSpamDatabase(@ApplicationContext context: Context): SpamDatabase {
-        return SpamDatabase.getInstance(context)
-    }
+    @Provides @Singleton
+    fun provideSpamDatabase(@ApplicationContext context: Context): SpamDatabase =
+        SpamDatabase.getInstance(context)
 
-    @Provides
-    @Singleton
+    @Provides @Singleton
+    fun provideSpamNumberRepository(db: SpamDatabase): SpamNumberRepository =
+        SpamNumberRepository(db)
+
+    @Provides @Singleton
     fun provideSpamRepository(
         db: SpamDatabase,
         @ApplicationContext context: Context
-    ): SpamRepository {
-        return SpamRepository(db, context)
-    }
+    ): SpamRepository = SpamRepository(db, context)
 
-    @Provides
-    @Singleton
-    fun provideConsentManager(@ApplicationContext context: Context): ConsentManager {
-        return ConsentManager(context)
-    }
+    @Provides @Singleton
+    fun provideConsentManager(@ApplicationContext context: Context): ConsentManager =
+        ConsentManager(context)
 
-    @Provides
-    @Singleton
+    @Provides @Singleton
     fun provideWifiSyncManager(
         @ApplicationContext context: Context,
         consentManager: ConsentManager
-    ): WifiSyncManager {
-        return WifiSyncManager(context, consentManager)
-    }
+    ): WifiSyncManager = WifiSyncManager(context, consentManager)
+
+    @Provides @Singleton
+    fun provideTFLiteClassifier(): TFLiteClassifier = TFLiteClassifier()
+
+    @Provides @Singleton
+    fun provideSpamDetectionEngine(repository: SpamRepository): SpamDetectionEngine =
+        SpamDetectionEngine(repository)
 }
