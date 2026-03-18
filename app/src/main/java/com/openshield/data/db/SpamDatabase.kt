@@ -161,7 +161,7 @@ interface PendingReportDao {
         PendingReviewEntity::class,
         PendingReportEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class SpamDatabase : RoomDatabase() {
@@ -203,6 +203,15 @@ abstract class SpamDatabase : RoomDatabase() {
             }
         }
 
+        // v3 → v4: community_reports silindi, spam_numbers tablosuna isUserAdded ve reportCount eklendi
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS community_reports")
+                db.execSQL("ALTER TABLE spam_numbers ADD COLUMN isUserAdded INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE spam_numbers ADD COLUMN reportCount INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         fun getInstance(context: Context): SpamDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -210,7 +219,7 @@ abstract class SpamDatabase : RoomDatabase() {
                     SpamDatabase::class.java,
                     "openshield.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }
