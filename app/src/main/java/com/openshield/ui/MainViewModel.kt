@@ -10,7 +10,9 @@ import com.openshield.data.db.WhitelistEntity
 import com.openshield.data.model.SmsHistoryItem
 import com.openshield.data.repository.SpamNumberRepository
 import com.openshield.detection.rules.SpamTokenExtractor
-import com.openshield.worker.CommunityUpdateWorker
+import com.openshield.data.repository.CommunityRepository
+import com.openshield.data.repository.ConsentManager
+import com.openshield.worker.WifiSyncManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +25,9 @@ import javax.inject.Inject
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val repository: SpamNumberRepository,
+    private val consentManager: ConsentManager,
+    private val communityRepository: CommunityRepository,
+    private val wifiSyncManager: WifiSyncManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -77,10 +82,9 @@ class MainViewModel @Inject constructor(
 
     fun decideSuspicious(item: PendingReviewEntity, isSpam: Boolean) = viewModelScope.launch {
         repository.decideSuspicious(item, isSpam)
-        if (isSpam && CommunityUpdateWorker.hasConsent(context)) {
-            val hash = repository.hashNumber(item.sender)
+        if (isSpam && consentManager.communityConsent) {
             val rules = SpamTokenExtractor.sanitizeRules(item.reason.split(","))
-            CommunityUpdateWorker.reportSpam(context, hash, emptyList(), rules)
+            communityRepository.reportSpam(item.sender, rules, wifiSyncManager.isWifiConnected())
         }
     }
 
@@ -92,11 +96,9 @@ class MainViewModel @Inject constructor(
         triggeredRules: List<String> = emptyList()
     ) = viewModelScope.launch {
         repository.addSpam(number, label = "Bildirildi")
-        if (CommunityUpdateWorker.hasConsent(context)) {
-            val hash = repository.hashNumber(number)
-            val tokens = SpamTokenExtractor.extract(messageBody)
+        if (consentManager.communityConsent) {
             val safeRules = SpamTokenExtractor.sanitizeRules(triggeredRules)
-            CommunityUpdateWorker.reportSpam(context, hash, tokens, safeRules)
+            communityRepository.reportSpam(number, safeRules, wifiSyncManager.isWifiConnected())
         }
     }
 

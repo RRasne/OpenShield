@@ -18,7 +18,7 @@ class SpamRepository @Inject constructor(
     private val db: SpamDatabase,
     private val appContext: Context
 ) {
-    val userSpamNumbers: Flow<List<SpamNumberEntity>> = db.spamNumberDao().getUserAddedFlow()
+    val userSpamNumbers: Flow<List<SpamNumberEntity>> = db.spamNumberDao().getAllFlow()
     val allWhitelist: Flow<List<WhitelistEntity>> = db.whitelistDao().getAllFlow()
     val recentBlocked: Flow<List<BlockedLogEntity>> = db.blockLogDao().getRecentFlow()
     val pendingReviews: Flow<List<PendingReviewEntity>> = db.pendingReviewDao().getAllFlow()

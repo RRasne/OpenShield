@@ -3,9 +3,10 @@ package com.openshield.data.db
 import android.content.Context
 import androidx.room.*
 import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
-// ─── Entities ─────────────────────────────────────────────────────────────────
+// ─── Entity'ler ───────────────────────────────────────────────────────────────
 
 @Entity(tableName = "spam_numbers")
 data class SpamNumberEntity(
@@ -32,22 +33,6 @@ data class BlockedLogEntity(
     val blockedAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "community_reports")
-data class CommunityReportEntity(
-    @PrimaryKey val numberHash: String,
-    val reportCount: Int = 1,
-    val source: String = "community",
-    val firstReportedAt: Long = System.currentTimeMillis(),
-    val lastReportedAt: Long = System.currentTimeMillis()
-)
-
-/**
- * Şüpheli olarak işaretlenen ama henüz kullanıcı kararı verilmemiş mesajlar.
- * Uygulama açılınca MainViewModel bunları çeker ve dialog gösterir.
- * Karar sonrası kayıt silinir:
- *   - Spam → blocked_log + community_reports'a ekle
- *   - Değil → sadece sil
- */
 @Entity(tableName = "pending_review")
 data class PendingReviewEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -57,33 +42,50 @@ data class PendingReviewEntity(
     val receivedAt: Long = System.currentTimeMillis()
 )
 
-// ─── DAOs ─────────────────────────────────────────────────────────────────────
+// Wi-Fi yokken biriken raporlar — bağlanınca gönderilir
+@Entity(tableName = "pending_reports")
+data class PendingReportEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val numberHash: String,
+    val triggeredRules: String,   // JSON array string
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+// ─── DAO'lar ──────────────────────────────────────────────────────────────────
 
 @Dao
 interface SpamNumberDao {
-    @Query("SELECT * FROM spam_numbers WHERE isUserAdded = 1 ORDER BY addedAt DESC")
-    fun getUserAddedFlow(): Flow<List<SpamNumberEntity>>
-
     @Query("SELECT * FROM spam_numbers ORDER BY addedAt DESC")
     fun getAllFlow(): Flow<List<SpamNumberEntity>>
 
-    @Query("SELECT * FROM spam_numbers WHERE number = :number LIMIT 1")
-    suspend fun findByNumber(number: String): SpamNumberEntity?
+    @Query("SELECT * FROM spam_numbers WHERE isUserAdded = 1 ORDER BY addedAt DESC")
+    fun getUserAddedFlow(): Flow<List<SpamNumberEntity>>
 
-    @Query("SELECT COUNT(*) FROM spam_numbers")
-    suspend fun count(): Int
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(entity: SpamNumberEntity)
+    @Query("DELETE FROM spam_numbers WHERE isUserAdded = 0")
+    suspend fun deleteAllBundled()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(entities: List<SpamNumberEntity>)
 
+    @Query("SELECT * FROM spam_numbers WHERE number = :number LIMIT 1")
+    suspend fun findByNumber(number: String): SpamNumberEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: SpamNumberEntity)
+
     @Query("DELETE FROM spam_numbers WHERE number = :number")
     suspend fun deleteByNumber(number: String)
 
-    @Query("DELETE FROM spam_numbers WHERE isUserAdded = 0")
-    suspend fun deleteAllBundled()
+    @Query("SELECT COUNT(*) FROM spam_numbers")
+    suspend fun count(): Int
+
+    @Query("SELECT COUNT(*) FROM spam_numbers WHERE isUserAdded = 0")
+    suspend fun communityCount(): Int
+
+    // Topluluk sync — hash direkt eklenir
+    suspend fun insertCommunityHash(hash: String) {
+        insert(SpamNumberEntity(number = hash, label = "Topluluk", isUserAdded = false))
+    }
 }
 
 @Dao
@@ -117,43 +119,12 @@ interface BlockedLogDao {
 }
 
 @Dao
-interface CommunityReportDao {
-    @Query("SELECT reportCount FROM community_reports WHERE numberHash = :hash LIMIT 1")
-    suspend fun getReportCount(hash: String): Int?
-
-    @Transaction
-    suspend fun addReport(hash: String) {
-        val existing = findByHash(hash)
-        if (existing == null) {
-            insert(CommunityReportEntity(numberHash = hash, reportCount = 1))
-        } else {
-            incrementCount(hash, System.currentTimeMillis())
-        }
-    }
-
-    @Query("SELECT * FROM community_reports WHERE numberHash = :hash LIMIT 1")
-    suspend fun findByHash(hash: String): CommunityReportEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(entity: CommunityReportEntity)
-
-    @Query("UPDATE community_reports SET reportCount = reportCount + 1, lastReportedAt = :ts WHERE numberHash = :hash")
-    suspend fun incrementCount(hash: String, ts: Long)
-
-    @Query("SELECT COUNT(*) FROM community_reports")
-    suspend fun totalCount(): Int
-
-    @Query("SELECT * FROM community_reports ORDER BY reportCount DESC")
-    fun getAllFlow(): Flow<List<CommunityReportEntity>>
-}
-
-@Dao
 interface PendingReviewDao {
-    @Query("SELECT * FROM pending_review ORDER BY receivedAt DESC")
+    @Query("SELECT * FROM pending_review ORDER BY receivedAt ASC")
     fun getAllFlow(): Flow<List<PendingReviewEntity>>
 
-    @Query("SELECT COUNT(*) FROM pending_review")
-    suspend fun count(): Int
+    @Query("SELECT * FROM pending_review ORDER BY receivedAt ASC")
+    suspend fun getAll(): List<PendingReviewEntity>
 
     @Insert
     suspend fun insert(entity: PendingReviewEntity)
@@ -161,8 +132,23 @@ interface PendingReviewDao {
     @Query("DELETE FROM pending_review WHERE id = :id")
     suspend fun deleteById(id: Long)
 
-    @Query("DELETE FROM pending_review")
-    suspend fun clearAll()
+    @Query("SELECT COUNT(*) FROM pending_review")
+    suspend fun count(): Int
+}
+
+@Dao
+interface PendingReportDao {
+    @Query("SELECT * FROM pending_reports ORDER BY createdAt ASC")
+    suspend fun getAll(): List<PendingReportEntity>
+
+    @Insert
+    suspend fun insert(entity: PendingReportEntity)
+
+    @Query("DELETE FROM pending_reports WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("SELECT COUNT(*) FROM pending_reports")
+    suspend fun count(): Int
 }
 
 // ─── Database ─────────────────────────────────────────────────────────────────
@@ -172,8 +158,8 @@ interface PendingReviewDao {
         SpamNumberEntity::class,
         WhitelistEntity::class,
         BlockedLogEntity::class,
-        CommunityReportEntity::class,
-        PendingReviewEntity::class
+        PendingReviewEntity::class,
+        PendingReportEntity::class
     ],
     version = 3,
     exportSchema = false
@@ -182,35 +168,36 @@ abstract class SpamDatabase : RoomDatabase() {
     abstract fun spamNumberDao(): SpamNumberDao
     abstract fun whitelistDao(): WhitelistDao
     abstract fun blockLogDao(): BlockedLogDao
-    abstract fun communityReportDao(): CommunityReportDao
     abstract fun pendingReviewDao(): PendingReviewDao
+    abstract fun pendingReportDao(): PendingReportDao
 
     companion object {
         @Volatile private var INSTANCE: SpamDatabase? = null
 
+        // v1 → v2: pending_review eklendi
         private val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
-                database.execSQL("""
-                    CREATE TABLE IF NOT EXISTS community_reports (
-                        numberHash TEXT NOT NULL PRIMARY KEY,
-                        reportCount INTEGER NOT NULL DEFAULT 1,
-                        source TEXT NOT NULL DEFAULT 'community',
-                        firstReportedAt INTEGER NOT NULL,
-                        lastReportedAt INTEGER NOT NULL
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS pending_review (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        sender     TEXT NOT NULL,
+                        reason     TEXT NOT NULL,
+                        score      REAL NOT NULL,
+                        receivedAt INTEGER NOT NULL
                     )
                 """.trimIndent())
             }
         }
 
+        // v2 → v3: pending_reports eklendi
         private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
-                database.execSQL("""
-                    CREATE TABLE IF NOT EXISTS pending_review (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        sender TEXT NOT NULL,
-                        reason TEXT NOT NULL,
-                        score REAL NOT NULL,
-                        receivedAt INTEGER NOT NULL
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS pending_reports (
+                        id             INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        numberHash     TEXT NOT NULL,
+                        triggeredRules TEXT NOT NULL,
+                        createdAt      INTEGER NOT NULL
                     )
                 """.trimIndent())
             }

@@ -30,7 +30,7 @@ class SpamNumberRepository @Inject constructor(
 
     suspend fun getCommunityReportCount(number: String): Int {
         val hash = hashNumber(number)
-        return db.communityReportDao().getReportCount(hash) ?: 0
+        return if (db.spamNumberDao().findByNumber(hash) != null) 3 else 0
     }
 
     // ─── UI Flow'ları ─────────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ class SpamNumberRepository @Inject constructor(
 
     suspend fun clearHistory() = db.blockLogDao().clearAll()
 
-    suspend fun communityReportCount(): Int = db.communityReportDao().totalCount()
+    suspend fun communityReportCount(): Int = db.spamNumberDao().communityCount()
 
     // ─── Şüpheli mesaj akışı ─────────────────────────────────────────────────
 
@@ -108,20 +108,9 @@ class SpamNumberRepository @Inject constructor(
                     blockedAt = item.receivedAt
                 )
             )
-            db.communityReportDao().addReport(hashNumber(item.sender))
         }
         db.pendingReviewDao().deleteById(item.id)
     }
-
-    // ─── Topluluk raporlama ───────────────────────────────────────────────────
-
-    suspend fun reportAsCommunitySpam(number: String) {
-        val hash = hashNumber(number)
-        db.communityReportDao().addReport(hash)
-    }
-
-    val communityReports: Flow<List<CommunityReportEntity>>
-        get() = db.communityReportDao().getAllFlow()
 
     // ─── Yardımcılar ──────────────────────────────────────────────────────────
 

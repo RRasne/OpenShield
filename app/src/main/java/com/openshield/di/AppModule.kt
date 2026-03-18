@@ -6,7 +6,8 @@ import com.openshield.data.repository.SpamNumberRepository
 import com.openshield.data.repository.SpamRepository
 import com.openshield.detection.engine.SpamDetectionEngine
 import com.openshield.detection.ml.TFLiteClassifier
-import com.openshield.util.ConsentManager
+import com.openshield.data.repository.CommunityRepository
+import com.openshield.data.repository.ConsentManager
 import com.openshield.worker.WifiSyncManager
 import dagger.Module
 import dagger.Provides
@@ -38,10 +39,16 @@ object AppModule {
         ConsentManager(context)
 
     @Provides @Singleton
+    fun provideCommunityRepository(
+        db: SpamDatabase,
+        consentManager: ConsentManager
+    ): CommunityRepository = CommunityRepository(db, consentManager)
+
+    @Provides @Singleton
     fun provideWifiSyncManager(
         @ApplicationContext context: Context,
-        consentManager: ConsentManager
-    ): WifiSyncManager = WifiSyncManager(context, consentManager)
+        communityRepository: CommunityRepository
+    ): WifiSyncManager = WifiSyncManager(context, communityRepository)
 
     @Provides @Singleton
     fun provideTFLiteClassifier(): TFLiteClassifier = TFLiteClassifier()

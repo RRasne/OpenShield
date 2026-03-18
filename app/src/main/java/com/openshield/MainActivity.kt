@@ -45,7 +45,7 @@ import com.openshield.data.model.SmsHistoryItem
 import com.openshield.ui.MainViewModel
 import com.openshield.ui.MessageHistoryScreen
 import com.openshield.ui.SuspiciousReviewDialog
-import com.openshield.worker.CommunityUpdateWorker
+import com.openshield.data.repository.ConsentManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -102,7 +102,7 @@ enum class Tab { HOME, BLACKLIST, WHITELIST, LOG, SETTINGS }
 @Composable
 fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val context = LocalContext.current
-    val dataSharingConsent = remember { mutableStateOf(CommunityUpdateWorker.hasConsent(context)) }
+    val dataSharingConsent = remember { mutableStateOf(ConsentManager(context).communityConsent) }
 
     val spamNumbers      by viewModel.spamNumbers.collectAsState()
     val whitelist        by viewModel.whitelist.collectAsState()
@@ -185,7 +185,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                         dataSharing = dataSharing,
                         onDataSharingChange = {
                             dataSharing = it
-                            CommunityUpdateWorker.setConsent(context, it)
+                            ConsentManager(context).communityConsent = it
                         },
                         onClearAll = { viewModel.clearAllData() }
                     )

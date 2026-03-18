@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openshield.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
-import com.openshield.worker.CommunityUpdateWorker
+import com.openshield.data.repository.ConsentManager
 
 private val BgDark     = Color(0xFF080D18)
 private val Surface1   = Color(0xFF0F1623)
@@ -69,7 +69,7 @@ class OnboardingActivity : ComponentActivity() {
             ) {
                 OnboardingFlow(
                     onComplete = { accepted ->
-                        CommunityUpdateWorker.setConsent(this, accepted)
+                        ConsentManager(this).communityConsent = accepted
                         OnboardingCheck.markDone(this)
                         startActivity(Intent(this, MainActivity::class.java))
                         finish()
