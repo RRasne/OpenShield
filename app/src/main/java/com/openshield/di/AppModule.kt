@@ -31,8 +31,13 @@ object AppModule {
     @Provides @Singleton
     fun provideSpamRepository(
         db: SpamDatabase,
-        @ApplicationContext context: Context
-    ): SpamRepository = SpamRepository(db, context)
+        communityRepository: CommunityRepository,
+        wifiSyncManager: WifiSyncManager
+    ): SpamRepository = SpamRepository(
+        db = db,
+        communityRepository = communityRepository,
+        isWifiConnected = { wifiSyncManager.isWifiConnected() }
+    )
 
     @Provides @Singleton
     fun provideConsentManager(@ApplicationContext context: Context): ConsentManager =

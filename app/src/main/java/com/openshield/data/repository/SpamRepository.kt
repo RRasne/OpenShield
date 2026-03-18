@@ -1,77 +1,95 @@
 package com.openshield.data.repository
 
-import android.content.Context
-import com.openshield.data.BundledSpamImporter
-import com.openshield.data.SpamReporter
-import com.openshield.data.db.BlockedLogEntity
-import com.openshield.data.db.PendingReviewEntity
-import com.openshield.data.db.SpamDatabase
-import com.openshield.data.db.SpamNumberEntity
-import com.openshield.data.db.WhitelistEntity
-import com.openshield.worker.CommunityReportWorker
+import com.openshield.data.db.*
 import kotlinx.coroutines.flow.Flow
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class SpamRepository @Inject constructor(
+class SpamRepository(
     private val db: SpamDatabase,
-    private val appContext: Context
+    private val communityRepository: CommunityRepository? = null,
+    private val isWifiConnected: () -> Boolean = { false }
 ) {
-    val userSpamNumbers: Flow<List<SpamNumberEntity>> = db.spamNumberDao().getAllFlow()
-    val allWhitelist: Flow<List<WhitelistEntity>> = db.whitelistDao().getAllFlow()
-    val recentBlocked: Flow<List<BlockedLogEntity>> = db.blockLogDao().getRecentFlow()
-    val pendingReviews: Flow<List<PendingReviewEntity>> = db.pendingReviewDao().getAllFlow()
 
-    suspend fun isSpam(number: String): Boolean {
-        val normalized = cleanNumber(number)
-        return db.spamNumberDao().findByNumber(normalized) != null
-    }
+    // ─── Spam Numaraları ──────────────────────────────────────────────────────
 
-    suspend fun isInBlacklist(number: String): Boolean = isSpam(number)
+    val allSpamNumbers: Flow<List<SpamNumberEntity>> = db.spamNumberDao().getAllFlow()
 
-    suspend fun isWhitelisted(number: String): Boolean {
-        return db.whitelistDao().findByNumber(cleanNumber(number)) != null
-    }
-
-    suspend fun isInWhitelist(number: String): Boolean = isWhitelisted(number)
+    suspend fun isSpam(number: String): Boolean =
+        db.spamNumberDao().findByNumber(cleanNumber(number)) != null
 
     suspend fun addSpam(number: String, label: String = "") {
-        db.spamNumberDao().insert(
-            SpamNumberEntity(number = cleanNumber(number), label = label)
-        )
+        db.spamNumberDao().insert(SpamNumberEntity(number = cleanNumber(number), label = label))
     }
+
+    suspend fun removeSpam(number: String) =
+        db.spamNumberDao().deleteByNumber(cleanNumber(number))
+
+    suspend fun spamCount(): Int = db.spamNumberDao().count()
+
+    // ─── Beyaz Liste ──────────────────────────────────────────────────────────
+
+    val allWhitelist: Flow<List<WhitelistEntity>> = db.whitelistDao().getAllFlow()
+
+    suspend fun isWhitelisted(number: String): Boolean =
+        db.whitelistDao().findByNumber(cleanNumber(number)) != null
 
     suspend fun addWhitelist(number: String, name: String = "") {
-        db.whitelistDao().insert(
-            WhitelistEntity(number = cleanNumber(number), name = name)
-        )
+        db.whitelistDao().insert(WhitelistEntity(number = cleanNumber(number), name = name))
     }
+
+    suspend fun removeWhitelist(number: String) =
+        db.whitelistDao().deleteByNumber(cleanNumber(number))
+
+    // ─── Engelleme Geçmişi ────────────────────────────────────────────────────
+
+    val recentBlocked: Flow<List<BlockedLogEntity>> = db.blockLogDao().getRecentFlow()
 
     suspend fun logBlocked(sender: String, reason: String, score: Float) {
-        db.blockLogDao().insert(
-            BlockedLogEntity(sender = sender, reason = reason, score = score)
-        )
+        db.blockLogDao().insert(BlockedLogEntity(sender = sender, reason = reason, score = score))
     }
 
-    suspend fun logSuspicious(sender: String, reason: String, score: Float) {
+    suspend fun totalBlocked(): Int = db.blockLogDao().totalCount()
+
+    suspend fun clearHistory() = db.blockLogDao().clearAll()
+
+    // ─── Bekleyen İncelemeler ─────────────────────────────────────────────────
+
+    suspend fun addPendingReview(sender: String, reason: String, score: Float) {
         db.pendingReviewDao().insert(
-            PendingReviewEntity(
-                sender = cleanNumber(sender),
-                reason = reason,
-                score = score
-            )
+            PendingReviewEntity(sender = sender, reason = reason, score = score)
         )
     }
 
-    suspend fun syncCommunityList(): Boolean {
-        val csv = SpamReporter().fetchCommunityCsv() ?: return false
-        BundledSpamImporter.importFromRemoteCsv(appContext, csv)
-        CommunityReportWorker.setLastSyncAt(appContext, System.currentTimeMillis())
-        return true
+    suspend fun getPendingReviews(): List<PendingReviewEntity> =
+        db.pendingReviewDao().getAll()
+
+    suspend fun pendingReviewCount(): Int = db.pendingReviewDao().count()
+
+    /**
+     * Kullanıcı kararı:
+     * isSpam = true  → kara listeye ekle + log + topluluk'a spam oyu
+     * isSpam = false → topluluk'a not_spam oyu gönder (yerel bir şey yapma)
+     */
+    suspend fun resolvePendingReview(entity: PendingReviewEntity, isSpam: Boolean) {
+        if (isSpam) {
+            addSpam(entity.sender, label = "Şüpheli onaylandı")
+            logBlocked(sender = entity.sender, reason = entity.reason, score = entity.score)
+            communityRepository?.reportSpam(
+                number          = entity.sender,
+                triggeredRules  = entity.reason.split(", "),
+                isWifiConnected = isWifiConnected()
+            )
+        } else {
+            // Spam değil — topluluk'a negatif oy gönder
+            communityRepository?.reportNotSpam(
+                number          = entity.sender,
+                isWifiConnected = isWifiConnected()
+            )
+        }
+        db.pendingReviewDao().deleteById(entity.id)
     }
 
-    private fun cleanNumber(number: String): String {
-        return number.trim().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-    }
+    // ─── Yardımcı ─────────────────────────────────────────────────────────────
+
+    private fun cleanNumber(number: String) =
+        number.trim().replace(" ", "").replace("-", "")
 }

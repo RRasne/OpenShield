@@ -3,27 +3,22 @@
 
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
-    <uses-permission android:name="android.permission.WRITE_SMS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.BROADCAST_SMS" />
+    <!-- Topluluk verisi sync — sadece Wi-Fi, kullanıcı onayıyla -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".OpenShieldApp"
-        android:allowBackup="false"
+        android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.OpenShield">
 
-        <!--
-            OnboardingActivity LAUNCHER'dır.
-            Onboarding tamamlandıysa kendi içinde MainActivity'ye yönlendirir.
-        -->
         <activity
-            android:name=".ui.OnboardingActivity"
+            android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -32,26 +27,11 @@
             </intent-filter>
         </activity>
 
-        <!--
-            MainActivity launcher DEĞİL.
-            OnboardingActivity veya bildirimden açılır.
-            launchMode="singleTop": bildirime tıklanınca çift açılmaz.
-        -->
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:windowSoftInputMode="adjustResize" />
-
-        <!--
-            priority="2147483647" = Integer.MAX_VALUE
-            abortBroadcast() için en yüksek öncelik şart.
-        -->
         <receiver
             android:name=".service.SmsReceiver"
             android:exported="true"
             android:permission="android.permission.BROADCAST_SMS">
-            <intent-filter android:priority="2147483647">
+            <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>

@@ -42,12 +42,20 @@ data class PendingReviewEntity(
     val receivedAt: Long = System.currentTimeMillis()
 )
 
-// Wi-Fi yokken biriken raporlar — bağlanınca gönderilir
+/**
+ * Wi-Fi yokken veya gönderim başarısız olduğunda biriken raporlar.
+ * voteType: "spam" | "not_spam"
+ * retryCount: kaç kez denendi (exponential backoff için)
+ */
 @Entity(tableName = "pending_reports")
 data class PendingReportEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val numberHash: String,
-    val triggeredRules: String,   // JSON array string
+    val number: String = "",             // düz numara — admin panelinde görünmesi için
+    val triggeredRules: String,          // JSON array string
+    val voteType: String = "spam",       // "spam" | "not_spam"
+    val retryCount: Int = 0,
+    val nextRetryAt: Long = 0L,          // epoch ms — bu zamandan önce deneme
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -82,7 +90,6 @@ interface SpamNumberDao {
     @Query("SELECT COUNT(*) FROM spam_numbers WHERE isUserAdded = 0")
     suspend fun communityCount(): Int
 
-    // Topluluk sync — hash direkt eklenir
     suspend fun insertCommunityHash(hash: String) {
         insert(SpamNumberEntity(number = hash, label = "Topluluk", isUserAdded = false))
     }
@@ -138,8 +145,12 @@ interface PendingReviewDao {
 
 @Dao
 interface PendingReportDao {
-    @Query("SELECT * FROM pending_reports ORDER BY createdAt ASC")
-    suspend fun getAll(): List<PendingReportEntity>
+    // Sadece retry zamanı gelmiş olanları getir
+    @Query("SELECT * FROM pending_reports WHERE nextRetryAt <= :now ORDER BY createdAt ASC")
+    suspend fun getDue(now: Long = System.currentTimeMillis()): List<PendingReportEntity>
+
+    @Query("SELECT COUNT(*) FROM pending_reports")
+    suspend fun count(): Int
 
     @Insert
     suspend fun insert(entity: PendingReportEntity)
@@ -147,8 +158,8 @@ interface PendingReportDao {
     @Query("DELETE FROM pending_reports WHERE id = :id")
     suspend fun deleteById(id: Long)
 
-    @Query("SELECT COUNT(*) FROM pending_reports")
-    suspend fun count(): Int
+    @Update
+    suspend fun update(entity: PendingReportEntity)
 }
 
 // ─── Database ─────────────────────────────────────────────────────────────────
@@ -159,7 +170,7 @@ interface PendingReportDao {
         WhitelistEntity::class,
         BlockedLogEntity::class,
         PendingReviewEntity::class,
-        PendingReportEntity::class
+        PendingReportEntity::class,
     ],
     version = 4,
     exportSchema = false
@@ -174,30 +185,30 @@ abstract class SpamDatabase : RoomDatabase() {
     companion object {
         @Volatile private var INSTANCE: SpamDatabase? = null
 
-        // v1 → v2: pending_review eklendi
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS pending_review (
-                        id         INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        sender     TEXT NOT NULL,
-                        reason     TEXT NOT NULL,
-                        score      REAL NOT NULL,
-                        receivedAt INTEGER NOT NULL
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        sender TEXT NOT NULL, reason TEXT NOT NULL,
+                        score REAL NOT NULL, receivedAt INTEGER NOT NULL
                     )
                 """.trimIndent())
             }
         }
 
-        // v2 → v3: pending_reports eklendi
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS pending_reports (
-                        id             INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        numberHash     TEXT NOT NULL,
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        numberHash TEXT NOT NULL,
+                        number TEXT NOT NULL DEFAULT '',
                         triggeredRules TEXT NOT NULL,
-                        createdAt      INTEGER NOT NULL
+                        voteType TEXT NOT NULL DEFAULT 'spam',
+                        retryCount INTEGER NOT NULL DEFAULT 0,
+                        nextRetryAt INTEGER NOT NULL DEFAULT 0,
+                        createdAt INTEGER NOT NULL
                     )
                 """.trimIndent())
             }
@@ -207,8 +218,12 @@ abstract class SpamDatabase : RoomDatabase() {
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP TABLE IF EXISTS community_reports")
-                db.execSQL("ALTER TABLE spam_numbers ADD COLUMN isUserAdded INTEGER NOT NULL DEFAULT 1")
-                db.execSQL("ALTER TABLE spam_numbers ADD COLUMN reportCount INTEGER NOT NULL DEFAULT 1")
+                try {
+                    db.execSQL("ALTER TABLE spam_numbers ADD COLUMN isUserAdded INTEGER NOT NULL DEFAULT 1")
+                } catch (e: Exception) {}
+                try {
+                    db.execSQL("ALTER TABLE spam_numbers ADD COLUMN reportCount INTEGER NOT NULL DEFAULT 1")
+                } catch (e: Exception) {}
             }
         }
 

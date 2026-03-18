@@ -13,12 +13,10 @@ class ConsentManager @Inject constructor(
     private val prefs: SharedPreferences =
         context.getSharedPreferences("openshield_prefs", Context.MODE_PRIVATE)
 
-    /** Kullanıcı topluluk verisi paylaşımına izin verdi mi? */
     var communityConsent: Boolean
         get()      = prefs.getBoolean("community_consent", false)
         set(value) = prefs.edit().putBoolean("community_consent", value).apply()
 
-    /** Son community-list sync zamanı (epoch ms) */
     var lastSyncTime: Long
         get()      = prefs.getLong("last_sync_time", 0L)
         set(value) = prefs.edit().putLong("last_sync_time", value).apply()

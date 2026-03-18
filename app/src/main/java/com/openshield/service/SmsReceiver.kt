@@ -10,7 +10,6 @@ import com.openshield.data.repository.ConsentManager
 import com.openshield.data.repository.SpamRepository
 import com.openshield.detection.engine.Classification
 import com.openshield.detection.engine.SpamDetectionEngine
-import com.openshield.detection.rules.SpamTokenExtractor
 import com.openshield.worker.WifiSyncManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,15 +34,18 @@ class SmsReceiver : BroadcastReceiver() {
         scope.launch {
             try {
                 val db             = SpamDatabase.getInstance(context)
-                val repository     = SpamRepository(db, context)
                 val consentManager = ConsentManager(context)
                 val communityRepo  = CommunityRepository(db, consentManager)
                 val wifiManager    = WifiSyncManager(context, communityRepo)
-                val engine         = SpamDetectionEngine(repository)
-                val result         = engine.analyze(sender, body)
+                val repository     = SpamRepository(
+                    db                = db,
+                    communityRepository = communityRepo,
+                    isWifiConnected   = { wifiManager.isWifiConnected() }
+                )
+                val engine = SpamDetectionEngine(repository)
+                val result = engine.analyze(sender, body)
 
                 when (result.classification) {
-
                     Classification.SPAM -> {
                         // Yerel log
                         repository.logBlocked(
@@ -51,25 +53,22 @@ class SmsReceiver : BroadcastReceiver() {
                             reason = result.reason,
                             score  = result.score
                         )
-                        val safeRules = SpamTokenExtractor.sanitizeRules(result.reason.split(","))
-
-                        // Wi-Fi bağlıysa anında gönder, değilse kuyruğa ekle
+                        val safeRules = com.openshield.detection.rules.SpamTokenExtractor.sanitizeRules(result.reason.split(","))
+                        // Topluluk'a spam oyu — Wi-Fi varsa anında, yoksa kuyruğa
                         communityRepo.reportSpam(
                             number          = sender,
                             triggeredRules  = safeRules,
                             isWifiConnected = wifiManager.isWifiConnected()
                         )
                     }
-
                     Classification.SUSPICIOUS -> {
-                        // Kullanıcı kararı için beklet — uygulama açılınca dialog çıkar
-                        repository.logSuspicious(
+                        // Kullanıcı kararı bekliyor — uygulama açılınca dialog çıkar
+                        repository.addPendingReview(
                             sender = sender,
                             reason = result.reason,
                             score  = result.score
                         )
                     }
-
                     Classification.CLEAN -> { /* dokunma */ }
                 }
             } finally {
