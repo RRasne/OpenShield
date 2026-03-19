@@ -214,7 +214,7 @@ abstract class SpamDatabase : RoomDatabase() {
             }
         }
 
-        // v3 → v4: community_reports silindi, spam_numbers tablosuna isUserAdded ve reportCount eklendi
+        // v3 → v4: community_reports silindi, spam_numbers tablosuna yeni alanlar eklendi
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP TABLE IF EXISTS community_reports")
