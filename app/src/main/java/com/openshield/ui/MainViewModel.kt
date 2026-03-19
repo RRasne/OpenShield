@@ -52,6 +52,10 @@ class MainViewModel @Inject constructor(
     private val _communitySummary = MutableStateFlow("")
     val communitySummary: StateFlow<String> = _communitySummary
 
+    // Ana sayfada sync zamanını göstermek için
+    private val _lastSyncTime = MutableStateFlow(consentManager.lastSyncTime)
+    val lastSyncTime: StateFlow<Long> = _lastSyncTime
+
     // ─── Kara / Beyaz Liste ───────────────────────────────────────────────────
 
     fun addSpam(number: String, label: String = "") = viewModelScope.launch {
@@ -120,7 +124,7 @@ class MainViewModel @Inject constructor(
         _smsFeedback.value = updated
 
         val sender = messages.firstOrNull()?.sender ?: return@launch
-        val body = messages.firstOrNull()?.body ?: ""
+        val body   = messages.firstOrNull()?.body ?: ""
         if (isSpam) reportAsSpam(sender, body)
         else repository.addWhitelist(sender, name = "Güvenilir (işaretlendi)")
     }

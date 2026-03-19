@@ -66,7 +66,7 @@ fun OnboardingScreen(
             targetState = step,
             transitionSpec = {
                 slideInHorizontally { it } + fadeIn() togetherWith
-                slideOutHorizontally { -it } + fadeOut()
+                        slideOutHorizontally { -it } + fadeOut()
             },
             label = "onboarding"
         ) { currentStep ->
@@ -200,7 +200,7 @@ fun StepPermission(
         Spacer(Modifier.height(12.dp))
         Text(
             "OpenShield'in çalışması için SMS okuma ve alma izni gereklidir. " +
-            "Bu izin yalnızca spam analizi için kullanılır.",
+                    "Bu izin yalnızca spam analizi için kullanılır.",
             color = TextSec, fontSize = 14.sp, textAlign = TextAlign.Center,
             lineHeight = 22.sp
         )
@@ -277,8 +277,8 @@ fun StepCommunity(
         Spacer(Modifier.height(12.dp))
         Text(
             "Bu özellik tamamen isteğe bağlıdır. " +
-            "Kabul ederseniz spam tespitleriniz anonim olarak paylaşılır " +
-            "ve topluluk listesi cihazınıza indirilir.",
+                    "Kabul ederseniz spam tespitleriniz anonim olarak paylaşılır " +
+                    "ve topluluk listesi cihazınıza indirilir.",
             color = TextSec, fontSize = 14.sp, textAlign = TextAlign.Center,
             lineHeight = 22.sp
         )
@@ -322,7 +322,7 @@ fun StepCommunity(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Bir numara için spam oyları toplamın %50'sini geçerse topluluk listesine girer. " +
-                    "\"Spam değil\" oyları bu oranı düşürür. Yanlış kayıtlar proje yöneticisi tarafından düzeltilebilir.",
+                            "\"Spam değil\" oyları bu oranı düşürür. Yanlış kayıtlar proje yöneticisi tarafından düzeltilebilir.",
                     color = TextMuted, fontSize = 12.sp, lineHeight = 19.sp
                 )
             }

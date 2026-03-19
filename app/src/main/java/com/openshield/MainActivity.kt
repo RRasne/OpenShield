@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
@@ -14,11 +15,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,29 +33,26 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.openshield.data.db.BlockedLogEntity
 import com.openshield.data.db.SpamNumberEntity
 import com.openshield.data.db.WhitelistEntity
-import com.openshield.data.model.SmsHistoryItem
 import com.openshield.ui.MainViewModel
 import com.openshield.ui.MessageHistoryScreen
 import com.openshield.ui.SuspiciousReviewDialog
 import com.openshield.data.repository.ConsentManager
+import com.openshield.ui.OnboardingScreen
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -75,10 +75,23 @@ val TextMuted  = Color(0xFF475569)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle     = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         setContent {
             OpenShieldTheme {
-                MainScreen()
+                // Nav bar beyaz kalma düzeltmesi
+                val view = LocalView.current
+                if (!view.isInEditMode) {
+                    SideEffect {
+                        WindowCompat.getInsetsController(window, view).apply {
+                            isAppearanceLightStatusBars     = false
+                            isAppearanceLightNavigationBars = false
+                        }
+                    }
+                }
+                RootScreen()
             }
         }
     }
@@ -100,8 +113,27 @@ enum class Tab { HOME, BLACKLIST, WHITELIST, LOG, SETTINGS }
 // ─── Ana Ekran ────────────────────────────────────────────────────────────────
 
 @Composable
-fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
+fun RootScreen() {
     val context = LocalContext.current
+    val consentManager = remember { ConsentManager(context) }
+    var onboardingDone by remember { mutableStateOf(consentManager.onboardingDone) }
+
+    if (!onboardingDone) {
+        OnboardingScreen(
+            onComplete = { communityConsent ->
+                consentManager.communityConsent = communityConsent
+                consentManager.onboardingDone   = true
+                onboardingDone = true
+            }
+        )
+    } else {
+        MainScreen()
+    }
+}
+
+@Composable
+fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
+    val context            = LocalContext.current
     val dataSharingConsent = remember { mutableStateOf(ConsentManager(context).communityConsent) }
 
     val spamNumbers      by viewModel.spamNumbers.collectAsState()
@@ -111,6 +143,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val smsFeedback      by viewModel.smsFeedback.collectAsState()
     val communitySummary by viewModel.communitySummary.collectAsState()
     val pendingReviews   by viewModel.pendingReviews.collectAsState()
+    val lastSyncTime     by viewModel.lastSyncTime.collectAsState()
 
     var activeTab      by remember { mutableStateOf(Tab.HOME) }
     var isProtectionOn by remember { mutableStateOf(true) }
@@ -127,15 +160,11 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
         hasPermission = perms[Manifest.permission.RECEIVE_SMS] == true
-        if (perms[Manifest.permission.READ_SMS] == true) {
-            viewModel.refreshSmsHistory()
-        }
+        if (perms[Manifest.permission.READ_SMS] == true) viewModel.refreshSmsHistory()
     }
 
     LaunchedEffect(activeTab, hasPermission) {
-        if (activeTab == Tab.LOG && hasPermission) {
-            viewModel.refreshSmsHistory()
-        }
+        if (activeTab == Tab.LOG && hasPermission) viewModel.refreshSmsHistory()
     }
 
     Box(modifier = Modifier.fillMaxSize().background(BgDark)) {
@@ -143,12 +172,15 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             Box(modifier = Modifier.weight(1f)) {
                 when (activeTab) {
                     Tab.HOME -> HomeTab(
-                        isOn = isProtectionOn,
-                        hasPermission = hasPermission,
-                        spamCount = spamNumbers.size,
-                        blockedCount = blockedLog.size,
+                        isOn               = isProtectionOn,
+                        hasPermission      = hasPermission,
+                        spamCount          = spamNumbers.size,
+                        blockedCount       = blockedLog.size,
+                        pendingCount       = pendingReviews.size,
                         dataSharingEnabled = dataSharing,
-                        onToggle = { isProtectionOn = it },
+                        recentBlocked      = blockedLog.take(3),
+                        lastSyncTime       = lastSyncTime,
+                        onToggle           = { isProtectionOn = it },
                         onRequestPermission = {
                             val perms = buildList {
                                 add(Manifest.permission.RECEIVE_SMS)
@@ -159,30 +191,30 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                         }
                     )
                     Tab.BLACKLIST -> BlacklistTab(
-                        numbers = spamNumbers,
-                        onAdd = { num, label -> viewModel.addSpam(num, label) },
+                        numbers  = spamNumbers,
+                        onAdd    = { num, label -> viewModel.addSpam(num, label) },
                         onRemove = { num -> viewModel.removeSpam(num) }
                     )
                     Tab.WHITELIST -> WhitelistTab(
-                        numbers = whitelist,
-                        onAdd = { num, name -> viewModel.addWhitelist(num, name) },
+                        numbers  = whitelist,
+                        onAdd    = { num, name -> viewModel.addWhitelist(num, name) },
                         onRemove = { num -> viewModel.removeWhitelist(num) }
                     )
                     Tab.LOG -> MessageHistoryScreen(
-                        messages = smsHistory,
-                        feedback = smsFeedback,
-                        summary = communitySummary,
+                        messages      = smsHistory,
+                        feedback      = smsFeedback,
+                        summary       = communitySummary,
                         hasPermission = hasPermission,
-                        onRefresh = {
+                        onRefresh     = {
                             viewModel.refreshSmsHistory()
                             viewModel.refreshCommunitySummary()
                         },
-                        onClearMarks = { viewModel.clearFeedback() },
-                        onMark = { msg, verdict -> viewModel.markSms(msg.id, msg.sender, verdict) },
-                        onMarkSender = { senderMessages, verdict -> viewModel.markSenderMessages(senderMessages, verdict) }
+                        onClearMarks  = { viewModel.clearFeedback() },
+                        onMark        = { msg, verdict -> viewModel.markSms(msg.id, msg.sender, verdict) },
+                        onMarkSender  = { msgs, verdict -> viewModel.markSenderMessages(msgs, verdict) }
                     )
                     Tab.SETTINGS -> SettingsTab(
-                        dataSharing = dataSharing,
+                        dataSharing         = dataSharing,
                         onDataSharingChange = {
                             dataSharing = it
                             ConsentManager(context).communityConsent = it
@@ -191,10 +223,9 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                     )
                 }
             }
-            // Şüpheli mesaj dialog — uygulama açılınca otomatik çıkar
             SuspiciousReviewDialog(
                 pendingReviews = pendingReviews,
-                onDecide = { item, isSpam -> viewModel.decideSuspicious(item, isSpam) }
+                onDecide       = { item, isSpam -> viewModel.decideSuspicious(item, isSpam) }
             )
             BottomNavBar(activeTab = activeTab, onTabChange = { activeTab = it })
         }
@@ -205,8 +236,16 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
 
 @Composable
 fun HomeTab(
-    isOn: Boolean, hasPermission: Boolean, spamCount: Int, blockedCount: Int,
-    dataSharingEnabled: Boolean, onToggle: (Boolean) -> Unit, onRequestPermission: () -> Unit
+    isOn: Boolean,
+    hasPermission: Boolean,
+    spamCount: Int,
+    blockedCount: Int,
+    pendingCount: Int,
+    dataSharingEnabled: Boolean,
+    recentBlocked: List<BlockedLogEntity>,
+    lastSyncTime: Long,
+    onToggle: (Boolean) -> Unit,
+    onRequestPermission: () -> Unit
 ) {
     val pulse = rememberInfiniteTransition(label = "p")
     val scale by pulse.animateFloat(
@@ -216,6 +255,8 @@ fun HomeTab(
     )
 
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+
+        // Header
         item {
             Box(
                 modifier = Modifier.fillMaxWidth()
@@ -269,6 +310,7 @@ fun HomeTab(
             }
         }
 
+        // SMS izni uyarısı
         if (!hasPermission) {
             item {
                 Card(
@@ -294,6 +336,30 @@ fun HomeTab(
             }
         }
 
+        // Bekleyen şüpheli uyarısı
+        if (pendingCount > 0) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = AccentBlue.copy(0.1f))
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("🟡", fontSize = 20.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "$pendingCount şüpheli mesaj kararınızı bekliyor",
+                                color = TextPri, fontSize = 13.sp, fontWeight = FontWeight.SemiBold
+                            )
+                            Text("Dialog otomatik çıkacak", color = TextSec, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // İstatistik kartları
         item {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -303,40 +369,109 @@ fun HomeTab(
                 StatCard(Modifier.weight(1f), spamCount.toString(), "Kara Liste", Amber)
                 StatCard(
                     Modifier.weight(1f),
-                    if (dataSharingEnabled) "Online" else "Offline",
-                    "Mod",
-                    if (dataSharingEnabled) AccentBlue else Green
+                    if (dataSharingEnabled) "Açık" else "Kapalı",
+                    "Topluluk",
+                    if (dataSharingEnabled) AccentBlue else TextMuted
                 )
             }
         }
 
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Card1)
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("Nasıl Çalışır?", color = TextPri, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(10.dp))
-                    InfoRow("🔍", "Numara kara liste kontrolü")
-                    InfoRow("📝", "İçerik analizi (Türkçe + İngilizce)")
-                    InfoRow("🔗", "URL ve IBAN tespiti")
-                    InfoRow("🎯", "Kumar sitesi marka tespiti")
-                    InfoRow("🏦", "Banka ve fatura mesajları korunur")
-                    InfoRow("🔕", "Sessiz bildirim — rahatsız etmez")
+        // Topluluk sync durumu
+        if (dataSharingEnabled) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Card1)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(Modifier.size(8.dp).clip(CircleShape)
+                            .background(if (lastSyncTime > 0) Green else TextMuted))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Topluluk Listesi", color = TextPri, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            val syncLabel = if (lastSyncTime > 0) {
+                                val mins = (System.currentTimeMillis() - lastSyncTime) / 60_000
+                                when {
+                                    mins < 60   -> "Son sync: $mins dk önce"
+                                    mins < 1440 -> "Son sync: ${mins / 60} saat önce"
+                                    else        -> "Son sync: ${mins / 1440} gün önce"
+                                }
+                            } else "Wi-Fi bağlantısında güncellenecek"
+                            Text(syncLabel, color = TextMuted, fontSize = 11.sp)
+                        }
+                        Text("📡", fontSize = 16.sp)
+                    }
+                }
+            }
+        }
+
+        // Son engellenenler
+        if (recentBlocked.isNotEmpty()) {
+            item {
+                Text(
+                    "Son Engellenenler",
+                    color = TextSec, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+            }
+            items(recentBlocked) { log -> RecentBlockedCard(log) }
+        } else {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Card1)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("✅", fontSize = 32.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Engellenen mesaj yok", color = TextPri, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Spam tespit edildiğinde burada görünecek", color = TextMuted, fontSize = 12.sp)
+                    }
                 }
             }
         }
     }
 }
 
+// ─── Son engellenen kart ──────────────────────────────────────────────────────
+
 @Composable
-fun InfoRow(icon: String, text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
-        Text(icon, fontSize = 14.sp)
-        Spacer(Modifier.width(8.dp))
-        Text(text, color = TextSec, fontSize = 13.sp)
+fun RecentBlockedCard(log: BlockedLogEntity) {
+    val scoreColor = when {
+        log.score > 0.8f -> Red
+        log.score > 0.5f -> Amber
+        else             -> Green
+    }
+    val fmt  = SimpleDateFormat("dd MMM HH:mm", Locale("tr"))
+    val date = fmt.format(Date(log.blockedAt))
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Card1)
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(40.dp).clip(CircleShape).background(scoreColor.copy(0.15f))
+            ) {
+                Text("${(log.score * 100).toInt()}", color = scoreColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(log.sender, color = TextPri, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(log.reason, color = TextSec, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(date, color = TextMuted, fontSize = 10.sp)
+        }
     }
 }
 
@@ -443,11 +578,6 @@ fun WhitelistTab(numbers: List<WhitelistEntity>, onAdd: (String, String) -> Unit
 @Composable
 fun SettingsTab(dataSharing: Boolean, onDataSharingChange: (Boolean) -> Unit, onClearAll: () -> Unit) {
     var showClearDialog by remember { mutableStateOf(false) }
-    var devTapCount     by remember { mutableIntStateOf(0) }
-    var showDevPanel    by remember { mutableStateOf(false) }
-    var devPanelData    by remember { mutableStateOf("") }
-    var devLoading      by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
 
     if (showClearDialog) {
         AlertDialog(
@@ -469,7 +599,6 @@ fun SettingsTab(dataSharing: Boolean, onDataSharingChange: (Boolean) -> Unit, on
                 modifier = Modifier.fillMaxWidth().background(Surface1)
                     .statusBarsPadding().padding(horizontal = 20.dp, vertical = 16.dp)
             ) {
-                // ⚙️ encoding düzeltmesi — emoji String literal olarak yazılıyor
                 Text("\u2699\uFE0F  Ayarlar", color = TextPri, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             }
         }
@@ -482,12 +611,11 @@ fun SettingsTab(dataSharing: Boolean, onDataSharingChange: (Boolean) -> Unit, on
                     Column(Modifier.weight(1f)) {
                         Text("Topluluk Veri Paylaşımı", color = TextPri, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.height(2.dp))
-                        Text("Spam numaralar anonim olarak paylaşılır", color = TextSec, fontSize = 12.sp)
+                        Text("Spam numaralar anonim olarak paylaşılır (yalnızca Wi-Fi)", color = TextSec, fontSize = 12.sp)
                     }
                     Spacer(Modifier.width(8.dp))
                     Switch(
-                        checked = dataSharing,
-                        onCheckedChange = onDataSharingChange,
+                        checked = dataSharing, onCheckedChange = onDataSharingChange,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White, checkedTrackColor = AccentBlue,
                             uncheckedThumbColor = TextMuted, uncheckedTrackColor = Surface2
@@ -514,101 +642,17 @@ fun SettingsTab(dataSharing: Boolean, onDataSharingChange: (Boolean) -> Unit, on
         }
 
         item {
-            // "Hakkında" başlığına 7 kez tıkla → geliştirici paneli
             SettingsSection("Hakkında") {
-                Column(modifier = Modifier.clickable {
-                    devTapCount++
-                    if (devTapCount >= 7) { showDevPanel = !showDevPanel; devTapCount = 0 }
-                }) {
-                    SettingsInfoRow("🛡️", "OpenShield", "SMS Spam Engelleme")
-                    HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
-                    SettingsInfoRow("📓", "Versiyon", "0.1.0-alpha")
-                    HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
-                    SettingsInfoRow("🔒", "Lisans", "GPL-3.0")
-                    HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
-                    SettingsInfoRow("📡", "İnternet", "Sadece topluluk verisi için")
-                }
-                if (devTapCount in 1..6) {
-                    Text("${7 - devTapCount} kez daha tıkla — Geliştirici modu",
-                        color = TextMuted, fontSize = 10.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                }
-            }
-        }
-
-        // Geliştirici Paneli
-        if (showDevPanel) {
-            item {
-                SettingsSection("Geliştirici Paneli") {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Topluluk Verileri", color = AccentBlue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Cloudflare KV'deki spam raporlarını görüntüle.\nEşiği geçmiş numaralar topluluk listesine girer.",
-                            color = TextSec, fontSize = 12.sp, lineHeight = 18.sp
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                devLoading = true; devPanelData = ""
-                                scope.launch { devPanelData = fetchDevStats(); devLoading = false }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            if (devLoading) {
-                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            Text(if (devLoading) "Yükleniyor..." else "Verileri Getir")
-                        }
-                        if (devPanelData.isNotBlank()) {
-                            Spacer(Modifier.height(12.dp))
-                            Card(colors = CardDefaults.cardColors(containerColor = BgDark), shape = RoundedCornerShape(8.dp)) {
-                                Text(devPanelData, color = Green, fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace, modifier = Modifier.padding(12.dp))
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            "Manuel düzeltme:\ndash.cloudflare.com → Workers & Pages → KV → openshield-kv",
-                            color = TextMuted, fontSize = 11.sp, lineHeight = 16.sp
-                        )
-                    }
-                }
+                SettingsInfoRow("🛡️", "OpenShield", "SMS Spam Engelleme")
+                HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                SettingsInfoRow("📓", "Versiyon", "0.1.0-alpha")
+                HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                SettingsInfoRow("🔒", "Lisans", "GPL-3.0")
+                HorizontalDivider(color = Surface2, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                SettingsInfoRow("📡", "İnternet", "Yalnızca topluluk verisi için")
             }
         }
     }
-}
-
-private suspend fun fetchDevStats(): String = withContext(Dispatchers.IO) {
-    try {
-        val conn = (URL("https://openshield-api.rasne.workers.dev/community-list?since=0")
-            .openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"; connectTimeout = 8_000; readTimeout = 8_000
-            setRequestProperty("User-Agent", "OpenShield-Dev/1.0")
-        }
-        if (conn.responseCode != 200) { conn.disconnect(); return@withContext "Hata: HTTP ${conn.responseCode}" }
-        val body = conn.inputStream.bufferedReader().readText()
-        conn.disconnect()
-        val json = JSONArray(body)
-        if (json.length() == 0) return@withContext "Henüz topluluk verisi yok."
-        buildString {
-            appendLine("Toplam: ${json.length()} kayıt\n")
-            for (i in 0 until minOf(json.length(), 20)) {
-                val obj = json.getJSONObject(i)
-                val hash = obj.getString("hash").take(12) + "..."
-                val count = obj.getInt("count")
-                val rules = if (obj.has("topRules")) {
-                    val arr = obj.getJSONArray("topRules")
-                    (0 until minOf(arr.length(), 2)).joinToString(", ") { arr.getJSONObject(it).getString("key") }
-                } else ""
-                appendLine("#${i + 1} $hash  rapor:$count")
-                if (rules.isNotBlank()) appendLine("    $rules")
-            }
-            if (json.length() > 20) appendLine("... ve ${json.length() - 20} kayıt daha")
-        }
-    } catch (e: Exception) { "Bağlantı hatası: ${e.message}" }
 }
 
 // ─── Ortak Bileşenler ─────────────────────────────────────────────────────────
@@ -702,21 +746,21 @@ fun EmptyState(title: String, subtitle: String) {
 fun BottomNavBar(activeTab: Tab, onTabChange: (Tab) -> Unit) {
     NavigationBar(containerColor = Surface1, tonalElevation = 0.dp) {
         listOf(
-            Triple(Tab.HOME,      Icons.Default.Home,        "Ana Sayfa"),
-            Triple(Tab.BLACKLIST, Icons.Default.Block,       "Kara Liste"),
-            Triple(Tab.WHITELIST, Icons.Default.CheckCircle, "Beyaz Liste"),
-            Triple(Tab.LOG,       Icons.Default.List,        "Geçmiş"),
-            Triple(Tab.SETTINGS,  Icons.Default.Settings,    "Ayarlar"),
+            Triple(Tab.HOME,      Icons.Default.Home,                 "Ana Sayfa"),
+            Triple(Tab.BLACKLIST, Icons.Default.Block,                "Kara Liste"),
+            Triple(Tab.WHITELIST, Icons.Default.CheckCircle,          "Beyaz Liste"),
+            Triple(Tab.LOG,       Icons.AutoMirrored.Filled.List,     "Geçmiş"),
+            Triple(Tab.SETTINGS,  Icons.Default.Settings,             "Ayarlar"),
         ).forEach { (tab, icon, label) ->
             NavigationBarItem(
                 selected = activeTab == tab,
-                onClick = { onTabChange(tab) },
-                icon = { Icon(icon, contentDescription = label) },
-                label = { Text(label, fontSize = 10.sp) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = AccentBlue, selectedTextColor = AccentBlue,
-                    unselectedIconColor = TextMuted, unselectedTextColor = TextMuted,
-                    indicatorColor = AccentBlue.copy(0.15f)
+                onClick  = { onTabChange(tab) },
+                icon     = { Icon(icon, contentDescription = label) },
+                label    = { Text(label, fontSize = 10.sp) },
+                colors   = NavigationBarItemDefaults.colors(
+                    selectedIconColor   = AccentBlue, selectedTextColor   = AccentBlue,
+                    unselectedIconColor = TextMuted,  unselectedTextColor = TextMuted,
+                    indicatorColor      = AccentBlue.copy(0.15f)
                 )
             )
         }

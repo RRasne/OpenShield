@@ -20,4 +20,9 @@ class ConsentManager @Inject constructor(
     var lastSyncTime: Long
         get()      = prefs.getLong("last_sync_time", 0L)
         set(value) = prefs.edit().putLong("last_sync_time", value).apply()
+
+    /** Onboarding tamamlandı mı? İlk açılışta false, tamamlanınca true. */
+    var onboardingDone: Boolean
+        get()      = prefs.getBoolean("onboarding_done", false)
+        set(value) = prefs.edit().putBoolean("onboarding_done", value).apply()
 }
