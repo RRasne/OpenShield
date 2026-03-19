@@ -218,13 +218,26 @@ abstract class SpamDatabase : RoomDatabase() {
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP TABLE IF EXISTS community_reports")
-                try {
+                if (!hasColumn(db, "spam_numbers", "isUserAdded")) {
                     db.execSQL("ALTER TABLE spam_numbers ADD COLUMN isUserAdded INTEGER NOT NULL DEFAULT 1")
-                } catch (e: Exception) {}
-                try {
+                }
+                if (!hasColumn(db, "spam_numbers", "reportCount")) {
                     db.execSQL("ALTER TABLE spam_numbers ADD COLUMN reportCount INTEGER NOT NULL DEFAULT 1")
-                } catch (e: Exception) {}
+                }
             }
+        }
+
+        private fun hasColumn(db: SupportSQLiteDatabase, tableName: String, columnName: String): Boolean {
+            db.query("PRAGMA table_info(`$tableName`)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                if (nameIndex == -1) return false
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(nameIndex).equals(columnName, ignoreCase = true)) {
+                        return true
+                    }
+                }
+            }
+            return false
         }
 
         fun getInstance(context: Context): SpamDatabase {

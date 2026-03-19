@@ -13,20 +13,20 @@
   <img src="https://img.shields.io/badge/reklam-yok-orange?style=flat-square" alt="No ads"/>
 </p>
 
-> Android için tamamen cihaz üzerinde çalışan, gizlilik öncelikli SMS spam engelleyici.  
-> Hiçbir SMS içeriği cihazınızdan çıkmaz.
+> Android için gizlilik öncelikli, açık kaynak SMS spam engelleyici.  
+> Spam tespiti tamamen cihazınızda gerçekleşir. SMS içeriği hiçbir zaman cihazınızdan çıkmaz.
 
 ---
 
 ## ✨ Özellikler
 
 - 🔒 **Çevrimdışı Tespit** — Spam analizi tamamen cihazda, internet gerektirmez
-- 🧠 **Katmanlı Analiz** — Numara kontrolü + Türkçe/İngilizce içerik kuralları + ağırlıklı skor
-- 🇹🇷 **Türkçe Optimize** — Kumar siteleri, sahte bağış, siyasi toplu mesaj, yatırım dolandırıcılığı
-- 🟡 **Akıllı Şüpheli Yönetimi** — Düşük skorlu mesajlar sessizce tutulur; siz karar verirsiniz
-- 👥 **Topluluk Listesi** — İsteğe bağlı, anonim SHA-256 hash bildirimi
+- 🧠 **Katmanlı Analiz** — Numara kontrolü + Türkçe/İngilizce kural motoru + ağırlıklı skor
+- 🇹🇷 **Türkçe Optimize** — Kumar siteleri, sahte bağış, siyasi toplu mesaj, yatırım dolandırıcılığı kalıpları
+- 🟡 **Şüpheli Mesaj Yönetimi** — Emin olunmayan mesajlar sessizce bekletilir; siz karar verirsiniz
+- 👥 **Topluluk Listesi** — İsteğe bağlı, anonim oylama sistemi (SHA-256 hash)
 - 📋 **Kara / Beyaz Liste** — Kendi filtrelerinizi tam kontrol edin
-- 🔕 **Sessiz Bildirim** — Spam engellenince ses/titreşim yok, sadece bilgi notu
+- 🔕 **Sıfır Bildirim Gürültüsü** — Spam gelince ses/titreşim yok, sadece sessiz kayıt
 - 🚫 **Sıfır Analitik** — Reklam yok, izleme kodu yok, üçüncü taraf SDK yok
 - ⚡ **Hafif** — Pil ve RAM dostu, arka planda minimal etki
 
@@ -43,42 +43,49 @@ Gelen SMS
     ├─[2]─ İçerik Analizi (RuleEngine)
     │       Türkçe/İngilizce anahtar kelimeler
     │       URL · IBAN · Kumar markası · Toplu SMS kodu
-    │       Combo kurallar (IBAN+dini söylem, havale+link, deneme+bonus vb.)
+    │       Combo kurallar: IBAN+dini söylem, havale+link, deneme+bonus vb.
     │
-    └─[3]─ Ağırlıklı Skor (numara×0.40 + içerik×0.35 + ml×0.25)
+    └─[3]─ Ağırlıklı Skor
+                numara × 0.40 + içerik × 0.35 + ML × 0.25
                 │
-                ├─ > 0.60  →  🔴 SPAM — sessiz bildirim, geçmişe kaydet
-                ├─ 0.40–0.60 →  🟡 ŞÜPHELİ — sessiz tut, uygulamada sor
-                └─ < 0.40  →  🟢 TEMİZ — dokunma
+                ├─ > 0.60    →  🔴 SPAM     — sessiz log, geçmişe kaydet
+                ├─ 0.40–0.60 →  🟡 ŞÜPHELİ — beklet, uygulamada sor
+                └─ < 0.40    →  🟢 TEMİZ    — dokunma
 ```
+
+### SPAM Akışı
+
+Spam tespit edildiğinde bildirim çıkmaz, ses/titreşim olmaz. Mesaj sessizce engelleme geçmişine kaydedilir. Topluluk veri paylaşımı açıksa ve Wi-Fi bağlıysa anonim hash raporu gönderilir; Wi-Fi yoksa kuyrukta bekler, bağlanınca gönderilir.
 
 ### Şüpheli Mesaj Akışı
 
-Bir mesaj "şüpheli" sınıflandırıldığında bildirim gösterilmez. Bir sonraki uygulama açılışınızda size gösterilerek "Spam mı, değil mi?" diye sorulur. SMS içeriği hiçbir zaman kaydedilmez; yalnızca gönderici numarası ve skor tutulur.
+Şüpheli sınıflandırılan mesajda hiçbir bildirim gösterilmez. Gönderici numarası, skor ve tetiklenen kurallar `pending_review` tablosuna kaydedilir — SMS içeriği **asla** kaydedilmez. Bir sonraki uygulama açılışında size "Spam mı, değil mi?" diye sorulur:
+
+- **Spam** → kara listeye eklenir, geçmişe yazılır, topluluk'a spam oyu gönderilir
+- **Değil** → kayıt silinir, topluluk'a "spam değil" oyu gönderilir (oran dengelenir)
 
 ---
 
 ## 🔐 Gizlilik
 
-**OpenShield'in temel felsefesi: Verileriniz size aittir.**
-
 | Konu | Durum |
 |---|---|
 | SMS içeriği kaydedilir mi? | ❌ Asla |
-| Numara düz metin saklanır mı? | Kara/beyaz liste: ✅ (kullanıcı girişi) · Topluluk: ❌ (SHA-256 hash) |
-| İnternet bağlantısı kullanılır mı? | Yalnızca topluluk onayı varsa, yalnızca Wi-Fi'de |
+| SMS içeriği sunucuya gider mi? | ❌ Asla |
+| Numara düz metin saklanır mı? | Kara/beyaz liste: ✅ kullanıcı girişi · Topluluk raporları: ❌ SHA-256 hash |
+| İnternet kullanılır mı? | Yalnızca topluluk onayı varsa, yalnızca Wi-Fi'de |
 | Mobil veri kullanılır mı? | ❌ Asla |
 | Reklam / analitik / üçüncü taraf SDK | ❌ Hiçbiri |
 | Veri satışı | ❌ Asla |
 
-### İnternet İzni Hakkında
+### İnternet İzni Hakkında Dürüst Açıklama
 
-OpenShield `INTERNET` iznine sahiptir. Bu izin **yalnızca iki durumda** kullanılır:
+OpenShield `INTERNET` iznine sahiptir. Bu izin **yalnızca şu iki durumda** kullanılır:
 
-1. **Topluluk spam listesini çekmek** — Wi-Fi'ye bağlandığında, son sync'ten 6+ saat geçmişse, yalnızca onay verildiyse
-2. **Anonim spam bildirimi göndermek** — Siz "spam bildir" dediğinizde, yalnızca onay verildiyse, yalnızca Wi-Fi'de
+1. **Topluluk spam listesini çekmek** — Wi-Fi'ye bağlandığında, son sync'ten 6+ saat geçmişse ve onay verildiyse
+2. **Anonim oy göndermek** — SPAM veya "değil" kararı verildiğinde, onay verildiyse, Wi-Fi'de
 
-Her iki işlem de onay olmadan **hiçbir zaman gerçekleşmez.** Kaynak kodu açık olduğundan bunu kendiniz doğrulayabilirsiniz.
+Her iki işlem de **onay olmadan hiçbir zaman gerçekleşmez.** Kaynak kodu açık olduğundan bunu kendiniz doğrulayabilirsiniz.
 
 ### Topluluk Bildirimi — Ne Gönderilir?
 
@@ -86,12 +93,19 @@ Her iki işlem de onay olmadan **hiçbir zaman gerçekleşmez.** Kaynak kodu aç
 |---|---|
 | Numaranın SHA-256 hash'i | Numaranın kendisi |
 | Tetiklenen kural isimleri (örn. `GAMBLING_BRAND`) | SMS içeriği |
-| Spam skoru (örn. `0.87`) | Cihaz kimliği |
-| Spam kategorisi (örn. `GAMBLING`) | Konum veya IP |
+| Oy türü: `spam` veya `not_spam` | Cihaz kimliği |
+| — | Konum veya IP |
 
 Hash tek yönlüdür — orijinal numara geri elde **edilemez.**
 
-Bir numara topluluk listesine girmek için **en az 5 farklı kullanıcıdan** bildirim almalıdır.
+### Topluluk Oylama Sistemi
+
+Her numara için `spam_votes` ve `not_spam_votes` sayılır. Karar kuralı:
+
+- `spam_votes / toplam_oy > %50` → topluluk listesine girer
+- `not_spam_votes / toplam_oy > %50` → listeden çıkar / girmez
+- Minimum oy şartı yoktur — 1 oy bile etkilidir
+- Yanlış kayıtlar admin tarafından manuel olarak düzeltilebilir
 
 ---
 
@@ -117,52 +131,57 @@ cd OpenShield
 ```
 app/src/main/java/com/openshield/
 ├── data/
-│   ├── db/                          # Room — SpamDatabase (v3, 5 tablo)
-│   ├── repository/                  # SpamNumberRepository — tek erişim noktası
-│   ├── BundledSpamImporter.kt       # APK ile gelen CSV → Room
-│   └── SpamReporter.kt              # Anonim topluluk raporu gönderici
+│   ├── db/
+│   │   └── SpamDatabase.kt          # Room v3 — 5 tablo, migration'lı
+│   └── repository/
+│       ├── SpamRepository.kt        # Kara/beyaz liste, log, pending_review
+│       ├── CommunityRepository.kt   # Topluluk raporu gönderme + sync
+│       └── ConsentManager.kt        # Onay durumu ve sync zamanı
 ├── detection/
-│   ├── engine/                      # SpamDetectionEngine — skor birleştirme
-│   └── rules/                       # RuleEngine — TR/EN kural seti
+│   ├── engine/
+│   │   └── SpamDetectionEngine.kt   # 3 katman skor birleştirme
+│   └── rules/
+│       └── RuleEngine.kt            # TR/EN kural seti, combo kurallar
 ├── service/
-│   └── SmsReceiver.kt               # SMS alımı, analiz, sessiz bildirim
+│   └── SmsReceiver.kt               # SMS alımı, analiz, log/pending_review
 ├── worker/
-│   ├── CommunityUpdateWorker.kt     # Delta sync (Wi-Fi, consent gerekli)
-│   └── WifiSyncManager.kt           # NetworkCallback — Wi-Fi'ye bağlanınca tetikler
-├── util/
-│   └── ConsentManager.kt            # Onay ve sync zamanı yönetimi
+│   └── WifiSyncManager.kt           # NetworkCallback — Wi-Fi'de flush + sync
 ├── ui/
-│   ├── MainActivity.kt              # 5 sekme (Ana Sayfa, Kara/Beyaz Liste, Geçmiş, Ayarlar)
+│   ├── MainActivity.kt              # 4 sekme: Ana Sayfa, Kara/Beyaz Liste, Geçmiş
 │   ├── MainViewModel.kt             # StateFlow tabanlı UI state
-│   ├── MessageHistoryScreen.kt      # SMS geçmişi, gönderici gruplu, işaretleme
 │   └── SuspiciousReviewDialog.kt    # Şüpheli mesaj karar dialogu
-└── OpenShieldApp.kt                 # WifiSyncManager'ı başlatır
+└── OpenShieldApp.kt                 # WifiSyncManager başlatma
 ```
 
-### DB Tabloları
+### DB Tabloları (v3)
 
 | Tablo | İçerik |
 |---|---|
-| `spam_numbers` | Kullanıcının kara listesi |
-| `whitelist` | Kullanıcının beyaz listesi |
-| `blocked_log` | Engelleme geçmişi |
-| `community_reports` | Topluluk raporları (SHA-256 hash) |
-| `pending_review` | Şüpheli mesajlar — karar bekleniyor |
+| `spam_numbers` | Kullanıcı kara listesi (düz numara) + topluluk hash'leri |
+| `whitelist` | Kullanıcı beyaz listesi (düz numara) |
+| `blocked_log` | Engelleme geçmişi (hash, skor, sebep, zaman) |
+| `pending_review` | Şüpheli mesajlar — kullanıcı kararı bekliyor |
+| `pending_reports` | Wi-Fi yokken biriken topluluk raporları — kuyruğa alınır |
 
-**Teknolojiler:** Jetpack Compose · Room · Hilt · Kotlin Coroutines · WorkManager · Cloudflare Workers
+**Teknolojiler:** Jetpack Compose · Room · Hilt · Kotlin Coroutines · Cloudflare Workers + KV
 
 ---
 
 ## 👥 Topluluk Spam Listesi
 
-Topluluk listesi iki katmandan oluşur:
+Topluluk sistemi Cloudflare Workers + KV üzerinde çalışır. Kaynak kodu [`cloudflare/worker.js`](cloudflare/worker.js) dosyasında açıktır.
 
-- **Bundled liste** — Her APK sürümüyle gelen, önceden onaylanmış spam hash'leri (`assets/bundled_spam.csv`)
-- **Canlı liste** — Kullanıcı bildirimleriyle büyüyen, Cloudflare KV üzerinde tutulan hash veritabanı
+**Nasıl çalışır:**
 
-Uygulama Wi-Fi'ye bağlandığında ve onay varsa delta endpoint'ten (`?since=<timestamp>`) yalnızca yeni eklenenler çekilir. Tüm veriler SHA-256 hash formatındadır.
+1. Kullanıcı onayı verirse ve Wi-Fi bağlıysa SPAM/DEĞIL kararları anonim hash olarak gönderilir
+2. Wi-Fi bağlantısı yokken kararlar cihazda kuyrukta bekler, bağlanınca otomatik gönderilir
+3. Her 6 saatte bir `community-list` endpoint'inden güncel liste çekilir
+4. Başarısız gönderimler exponential backoff ile tekrar denenir (30s → 1s → 2dk → 4dk → 8dk, max 5 deneme)
 
-Cloudflare Worker kaynak kodu: [`cloudflare/worker.js`](cloudflare/worker.js)
+**Oylama hesabı:**
+- Her numara için `spam_votes` ve `not_spam_votes` ayrı tutulur
+- `spam_votes / toplam > %50` ise o numara topluluk listesinde yer alır
+- Oran `%50`'nin altına düşerse listeden çıkar
 
 ---
 

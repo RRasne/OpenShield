@@ -8,83 +8,93 @@
 
 OpenShield'in temel felsefesi: **Verileriniz size aittir.**
 
-Spam tespiti tamamen cihazınızda gerçekleşir. İnternet bağlantısı, yalnızca siz açıkça onay verirseniz ve yalnızca anonim topluluk verileri için kullanılır.
+Spam tespiti tamamen cihazınızda gerçekleşir. SMS içeriği hiçbir zaman kaydedilmez veya iletilmez. İnternet bağlantısı yalnızca siz açıkça onay verirseniz ve yalnızca anonim topluluk verileri için kullanılır.
 
 ---
 
-## Cihaz Üzerinde Her Zaman Geçerli Olanlar
+## Her Zaman Geçerli Olan Kurallar
 
-OpenShield'in temel spam koruması internet bağlantısı **gerektirmez** ve şunları **asla yapmaz:**
+Onay verseniz de vermesen de OpenShield şunları **asla yapmaz:**
 
 - SMS içeriğini kaydetmez, loglamaz veya iletmez
-- Gerçek telefon numarasını veritabanına düz metin olarak yazmaz
-- Herhangi bir analitik, crash reporting veya üçüncü taraf SDK kullanmaz
+- SMS içeriğini hiçbir sunucuya göndermez
+- Gerçek telefon numarasını topluluk sistemine göndermez
+- Cihaz kimliği, reklam tanımlayıcısı veya konum bilgisi kullanmaz
+- Herhangi bir analitik, crash reporting veya üçüncü taraf SDK çalıştırmaz
+- Mobil veri bağlantısı kullanmaz
 
 ---
 
-## Cihaz Üzerinde Saklanan Veriler
+## Cihazda Saklanan Veriler
 
-| Veri | Format | Nerede |
+| Veri | Format | Neden |
 |---|---|---|
-| Kullanıcının eklediği spam numaralar | Düz metin (kullanıcı girişi) | Room DB |
-| Kullanıcının eklediği beyaz liste numaraları | Düz metin (kullanıcı girişi) | Room DB |
-| Topluluk raporları (gelen + bildirilen) | **SHA-256 hash** — geri dönüştürülemez | Room DB |
-| Engelleme geçmişi | Gönderici hash'i · skor · neden · zaman | Room DB |
-| Şüpheli mesajlar (karar bekleniyor) | Gönderici · skor · neden · zaman (SMS içeriği **yok**) | Room DB |
-| Topluluk sync zamanı | Unix timestamp | SharedPreferences |
-| Topluluk onayı | true / false | SharedPreferences |
+| Kullanıcı kara listesi numaraları | Düz metin | Kullanıcı girişi, tekrar görmesi gerekir |
+| Kullanıcı beyaz listesi numaraları | Düz metin | Kullanıcı girişi, tekrar görmesi gerekir |
+| Topluluk listesinden gelen hash'ler | SHA-256 hash | Numara eşleştirme — orijinal bilinemez |
+| Engelleme geçmişi | Gönderici, skor, sebep, zaman | Geçmiş ekranı |
+| Şüpheli mesajlar | Gönderici, skor, tetiklenen kurallar | Kullanıcı kararı bekliyor |
+| Wi-Fi'de gönderilemeyen raporlar | Hash + oy türü | Geçici kuyruk — gönderince silinir |
+| Topluluk onayı | true/false | SharedPreferences |
+| Son sync zamanı | Unix timestamp | 6 saatlik aralığı hesaplamak için |
 
-**Not:** Kullanıcının kendi eklediği kara/beyaz liste numaraları düz metin saklanır çünkü kullanıcı bunları kendisi girir ve tekrar görmesi gerekir. Topluluk raporları ve engelleme geçmişindeki numaralar ise daima hash'lenir.
-
-### Şüpheli Mesaj Akışı
-
-Bir SMS "şüpheli" (skor 0.40–0.60) olarak sınıflandırıldığında:
-
-- Bildirim **gösterilmez**
-- Gönderici, skor ve tetiklenen kurallar `pending_review` tablosuna kaydedilir (**SMS içeriği kaydedilmez**)
-- Siz uygulamayı bir sonraki açışınızda size "Bu numara spam mı?" diye sorulur
-- "Spam" derseniz → engelleme geçmişine eklenir, topluluk raporuna sayılır
-- "Değil" derseniz → kayıt silinir, hiçbir şey iletilmez
+**Önemli:** Şüpheli mesaj kaydında SMS içeriği yer almaz. Yalnızca gönderici numarası, skor ve hangi kuralların tetiklendiği tutulur.
 
 ---
 
-## İsteğe Bağlı: Topluluk Katkısı
+## Şüpheli Mesaj Akışı
 
-Onboarding sırasında veya **Ayarlar → Gizlilik** menüsünden "Topluluk Veri Paylaşımı"nı açarsanız aşağıdaki veriler anonim olarak iletilir.
+Bir SMS "şüpheli" (skor 0.40–0.60) sınıflandırıldığında:
 
-**Bu özelliği kapatırsanız hiçbir ağ isteği yapılmaz.**
+1. Bildirim gösterilmez, ses/titreşim olmaz
+2. Gönderici numarası, skor ve tetiklenen kurallar `pending_review` tablosuna yazılır
+3. Siz uygulamayı açtığınızda "Bu numara spam mı?" diye sorulur
+4. **"Spam"** derseniz → kara listeye eklenir, geçmişe yazılır, onay varsa topluluk'a spam oyu gönderilir
+5. **"Değil"** derseniz → kayıt silinir, onay varsa topluluk'a "spam değil" oyu gönderilir
+
+---
+
+## İsteğe Bağlı: Topluluk Veri Paylaşımı
+
+Bu özellik varsayılan olarak **kapalıdır.** İlk kurulumda veya Ayarlar ekranından açabilirsiniz.
+
+**Kapalıysa:** Hiçbir ağ isteği yapılmaz. Uygulama tamamen çevrimdışı çalışır.
+
+**Açıksa:** Aşağıdaki veriler anonim olarak iletilir.
 
 ### Ne Gönderilir?
 
 | Gönderilen | Format | Amaç |
 |---|---|---|
-| Numaranın SHA-256 hash'i | 64 karakter hex | Topluluk listesi |
-| Tetiklenen kural isimleri | Metin (örn. `GAMBLING_BRAND`) | Sınıflandırma |
-| Spam skoru | Ondalık sayı (örn. `0.87`) | Güvenilirlik |
-| Spam kategorisi | Metin (örn. `GAMBLING`) | Bölgesel analiz |
+| Numaranın SHA-256 hash'i | 64 karakter hex | Topluluk listesi eşleştirme |
+| Tetiklenen kural isimleri | Metin (örn. `GAMBLING_BRAND`, `IBAN`) | Kural kalitesini ölçme |
+| Oy türü | `spam` veya `not_spam` | Oylama sistemi |
 
-### Ne Asla Gönderilmez?
+### Ne Gönderilmez?
 
 - Gerçek telefon numarası
-- SMS içeriği
+- SMS içeriği — hiçbir koşulda
 - Cihaz kimliği veya reklam tanımlayıcısı
 - Konum bilgisi
-- IP adresi (Cloudflare tarafından alınsa da OpenShield tarafından gönderilmez/loglanmaz)
+- IP adresi (Cloudflare altyapısı tarafından görülse de OpenShield tarafından loglanmaz/gönderilmez)
 
 SHA-256 hash tek yönlüdür — orijinal numara **matematiksel olarak geri elde edilemez.**
 
-### Ne Zaman Gönderilir?
+### Gönderim Zamanlaması
 
-Topluluk verisi yalnızca **Wi-Fi bağlantısında** iletilir. Mobil veri kullanılmaz.
+- Yalnızca **Wi-Fi bağlantısında** — mobil veri kullanılmaz
+- Wi-Fi yoksa raporlar cihazda kuyrukta bekler, bağlanınca otomatik gönderilir
+- Her 6 saatte bir topluluk listesi güncellenir
+- Başarısız gönderimler exponential backoff ile tekrar denenir, 5 başarısız denemeden sonra düşürülür
 
-Uygulama Wi-Fi'ye bağlandığında şu kontroller yapılır:
-1. Kullanıcı onayı var mı? → hayırsa dur
-2. Son göndermeden bu yana en az 6 saat geçti mi? → hayırsa dur
-3. Her ikisi de evet → yalnızca o oturumdaki yeni raporlar gönderilir
+### Oylama Sistemi
 
-### Eşik Sistemi
+Her numara için `spam_votes` ve `not_spam_votes` ayrı tutulur. Karar kuralı:
 
-Bir numaranın topluluk listesine girmesi için **en az 5 farklı kullanıcıdan** bildirim alması gerekir. Tek kişinin bildirimi yalnızca o kişinin cihazında kaydedilir, listeye girmez.
+- `spam_votes / toplam_oy > %50` → numara topluluk listesine girer
+- `not_spam_votes / toplam_oy > %50` → girmez veya listeden çıkar
+- Minimum oy şartı yoktur — 1 oy etkilidir
+- Yanlış kayıtlar proje yöneticisi tarafından admin panelinden silinebilir/düzeltilebilir
 
 ---
 
@@ -93,29 +103,29 @@ Bir numaranın topluluk listesine girmesi için **en az 5 farklı kullanıcıdan
 | İzin | Neden |
 |---|---|
 | `RECEIVE_SMS` | Gelen SMS'leri spam analizi için almak |
-| `READ_SMS` | SMS geçmişini göstermek (isteğe bağlı) |
-| `POST_NOTIFICATIONS` | Engellenen spam için sessiz bildirim |
-| `INTERNET` | Yalnızca topluluk onayı varsa anonim veri iletimi için |
-| `ACCESS_NETWORK_STATE` | Wi-Fi bağlantısını kontrol etmek için |
+| `READ_SMS` | SMS geçmişini yönetmek |
+| `POST_NOTIFICATIONS` | Sessiz spam bildirimi göstermek |
+| `INTERNET` | Yalnızca topluluk onayı varsa anonim veri iletimi |
+| `ACCESS_NETWORK_STATE` | Wi-Fi bağlantısını kontrol etmek |
 
-Temel spam koruması `INTERNET` izni kullanılmadan çalışır.
+Temel spam koruması `INTERNET` izni hiç kullanılmadan çalışır.
 
 ---
 
 ## Veri Silme
 
-**Ayarlar → Tüm Verileri Sil** ile yerel veritabanındaki tüm kayıtlar anında silinir. Uygulamanın kaldırılması da tüm yerel verileri siler.
+**Ayarlar → Tüm Verileri Sil** ile yerel veritabanındaki tüm kayıtlar anında silinir. Uygulamanın kaldırılması da tüm yerel verileri temizler.
 
-Topluluk paylaşımını **Ayarlar → Gizlilik → Topluluk Veri Paylaşımı** toggle'ından her zaman kapatabilirsiniz. Kapatıldıktan sonra hiçbir ağ isteği yapılmaz.
+Topluluk paylaşımını **Ayarlar → Gizlilik** toggle'ından her zaman kapatabilirsiniz. Kapatıldıktan sonra hiçbir ağ isteği yapılmaz.
 
 ---
 
 ## Açık Kaynak ve Denetlenebilirlik
 
-Kaynak kodun tamamı [github.com/RRasne/OpenShield](https://github.com/RRasne/OpenShield) adresinde herkese açıktır. Cloudflare Worker kodu da aynı repoda [`cloudflare/worker.js`](cloudflare/worker.js) olarak bulunmaktadır. Bu belgede yazılanları kaynak koddan kendiniz doğrulayabilirsiniz.
+Kaynak kodun tamamı [github.com/RRasne/OpenShield](https://github.com/RRasne/OpenShield) adresinde herkese açıktır. Cloudflare Worker kodu da aynı repoda [`cloudflare/worker.js`](cloudflare/worker.js) olarak bulunmaktadır. Bu belgede yazılanları kaynak koddan bağımsız olarak doğrulayabilirsiniz.
 
 ---
 
 ## İletişim
 
-Sorularınız veya gizlilik ile ilgili endişeleriniz için: [GitHub Issues](https://github.com/RRasne/OpenShield/issues)
+Sorularınız veya gizlilik endişeleriniz için: [GitHub Issues](https://github.com/RRasne/OpenShield/issues)
